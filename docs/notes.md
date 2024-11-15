@@ -191,3 +191,69 @@ Append-only logs are ideal for systems where:
 - Incremental updates must be preserved for auditing or historical tracking.
 
 The next step is to address the **lack of indexing** and **space reuse** by combining logs with indexing data structures.
+
+### 1.4 `fsync` Gotchas
+
+The fsync system call ensures that file data and metadata are written to the storage device, making the updates durable. However, there are specific challenges and nuances to its use:
+
+Directory Syncing:
+
+After renaming or creating files, it's necessary to call fsync on the parent directory to ensure that the directory mapping (name-to-file mapping) is also written to disk.
+Without this step, a crash might result in a missing or incomplete directory entry, even if the file data itself is durable.
+Example:
+
+```go
+dir, err := os.Open("/path/to/directory")
+if err != nil {
+    return err
+}
+defer dir.Close()
+
+if err := dir.Sync(); err != nil {
+    return err
+}
+
+```
+
+**Error Handling**:
+
+- If `fsync` fails (e.g., due to a disk error), the database update should be considered unsuccessful.
+- However, in some filesystems, **page caching** can create inconsistency:
+    - You might read the new data (from the cache) even though `fsync` failed, giving a false sense of success.
+- This behavior is filesystem-dependent, requiring careful error checking and additional measures for reliability.
+
+### 1.5 Summary of Database Challenges*
+
+From these lessons, we can summarize key challenges and their solutions when transitioning from simple file management to building a database:
+
+1. **Problems with In-Place Updates**:
+    - **Solution**: Avoid in-place updates by using safer techniques:
+        - **Renaming files**: Replace old files atomically with new versions.
+        - **Append-only logs**: Record updates incrementally to ensure old data is preserved.
+2. **Append-Only Logs**:
+    - **Advantages**:
+        - Allows incremental updates.
+        - Preserves old data during crashes.
+    - **Limitations**:
+        - Does not handle indexing or reclaim unused space effectively.
+3. **`fsync` Usage**:
+    - Essential for ensuring durability of both file data and directory mappings.
+    - Requires careful handling of failures to maintain database consistency.
+
+### Unanswered Questions
+
+The foundational techniques discussed leave several open challenges that must be addressed in subsequent steps:
+
+1. **Indexing Data Structures**:
+    - How to enable fast lookups and efficient range queries in a database?
+2. **Space Reclamation**:
+    - How to reclaim disk space in append-only logs while ensuring consistency?
+3. **Combining Logs with Indexing**:
+    - How can logs and indexing work together to provide both durability and performance?
+4. **Concurrency**:
+    - How to manage concurrent readers and writers in a database system?
+
+References:
+
+- [1] [USENIX OSDI 2014 Slides on `fsync`](https://www.usenix.org/sites/default/files/conference/protected-files/osdi14_slides_pillai.pdf#page=31)
+- [2] [USENIX ATC 2020 on Filesystem Consistency](https://www.usenix.org/conference/atc20/presentation/rebello)
