@@ -1,6 +1,6 @@
-# How To build the this Project
+# Chapter 1 
 
-In this note, we will discuss about the idea to build a database.
+This chapter introduces the challenges of building a database from scratch and the foundational concepts that will be explored in the subsequent chapters. The goal is to understand the transition from file management to database systems and the key considerations for building a database.
 
 ## From file to database
 
