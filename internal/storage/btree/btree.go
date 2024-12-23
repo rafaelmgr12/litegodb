@@ -32,6 +32,7 @@ func NewBTree(degree int) *BTree {
 	}
 }
 
+// Insert inserts a key-value pair into the B-Tree.
 func (t *BTree) Insert(key int, value interface{}) {
 	root := t.root
 
