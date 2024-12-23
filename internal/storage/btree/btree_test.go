@@ -83,7 +83,7 @@ func TestBTreeInsertLargeDegree(t *testing.T) {
 
 }
 
-func TestBTreeInsertStressRandom(t *testing.T) {
+func TestBTreeInsertStress(t *testing.T) {
 	btree := btree.NewBTree(3)
 
 	testCases := make([]struct {

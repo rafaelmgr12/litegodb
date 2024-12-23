@@ -35,7 +35,7 @@ func NewBTree(degree int) *BTree {
 func (t *BTree) Insert(key int, value interface{}) {
 	root := t.root
 
-	// Se a raiz estiver cheia, criar nova raiz
+	// If the root is full, create a new root
 	if len(root.keys) == 2*t.degree-1 {
 		newRoot := &Node{
 			keys:     make([]int, 0),
@@ -63,26 +63,26 @@ func (t *BTree) splitChild(parent *Node, childIndex int) {
 		degree:   t.degree,
 	}
 
-	// Índice mediano
+	// Median index
 	mid := t.degree - 1
 
-	// Mover metade das chaves e valores para o novo nó
+	// Move half of the keys and values to the new node
 	newChild.keys = append(newChild.keys, child.keys[mid+1:]...)
 	newChild.values = append(newChild.values, child.values[mid+1:]...)
 
-	// Se não for folha, mover os filhos apropriados
+	// If not leaf, move the appropriate children
 	if !child.isLeaf {
 		newChild.children = append(newChild.children, child.children[mid+1:]...)
 		child.children = child.children[:mid+1]
 	}
 
-	// Inserir a chave mediana no pai
+	// Insert Key and Value in the parent
 	insertAt := 0
 	for insertAt < len(parent.keys) && parent.keys[insertAt] < child.keys[mid] {
 		insertAt++
 	}
 
-	// Inserir no pai
+	// Insert into the parent
 	parent.keys = append(parent.keys, 0)
 	parent.values = append(parent.values, nil)
 	copy(parent.keys[insertAt+1:], parent.keys[insertAt:])
@@ -90,12 +90,12 @@ func (t *BTree) splitChild(parent *Node, childIndex int) {
 	parent.keys[insertAt] = child.keys[mid]
 	parent.values[insertAt] = child.values[mid]
 
-	// Ajustar os filhos do pai
+	// Adjust the original child node
 	parent.children = append(parent.children, nil)
 	copy(parent.children[insertAt+2:], parent.children[insertAt+1:])
 	parent.children[insertAt+1] = newChild
 
-	// Truncar o nó filho original
+	// Trim the original child node
 	child.keys = child.keys[:mid]
 	child.values = child.values[:mid]
 }
@@ -104,13 +104,13 @@ func (t *BTree) insertNonFull(node *Node, key int, value interface{}) {
 	i := len(node.keys) - 1
 
 	if node.isLeaf {
-		// Encontrar posição de inserção
+		// find the correct position to insert the key
 		for i >= 0 && key < node.keys[i] {
 			i--
 		}
 		i++
 
-		// Inserir a chave e o valor
+		// insert the key and value
 		node.keys = append(node.keys, 0)
 		node.values = append(node.values, nil)
 		if i < len(node.keys)-1 {
@@ -120,13 +120,13 @@ func (t *BTree) insertNonFull(node *Node, key int, value interface{}) {
 		node.keys[i] = key
 		node.values[i] = value
 	} else {
-		// Encontrar o filho apropriado
+		// find the right children
 		for i >= 0 && key < node.keys[i] {
 			i--
 		}
 		i++
 
-		// Se o filho estiver cheio, dividir primeiro
+		// if the children is full, split it
 		if len(node.children[i].keys) == 2*t.degree-1 {
 			t.splitChild(node, i)
 			if key > node.keys[i] {
