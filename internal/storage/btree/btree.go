@@ -1,5 +1,9 @@
 package btree
 
+import (
+	"sync"
+)
+
 // Node represents a single node in the B-Tree.
 type Node struct {
 	keys     []int         // Keys stored in the node.
@@ -11,8 +15,9 @@ type Node struct {
 
 // BTree represents the overall B-Tree.
 type BTree struct {
-	root   *Node // Root node of the tree.
-	degree int   // Minimum degree.
+	root   *Node      // Root node of the tree.
+	degree int        // Minimum degree.
+	mutex  sync.Mutex // Mutex for thread-safety
 }
 
 // NewBTree creates a new B-Tree with the specified degree.
@@ -34,14 +39,28 @@ func NewBTree(degree int) *BTree {
 
 // Insert inserts a key-value pair into the B-Tree.
 func (t *BTree) Insert(key int, value interface{}) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	if value == nil {
+		panic("value cannot be nil")
+	}
+	if t.root == nil {
+		t.root = &Node{
+			keys:     make([]int, 0, 2*t.degree-1),
+			values:   make([]interface{}, 0, 2*t.degree-1),
+			children: make([]*Node, 0, 2*t.degree),
+			isLeaf:   true,
+			degree:   t.degree,
+		}
+	}
 	root := t.root
 
 	// If the root is full, create a new root
 	if len(root.keys) == 2*t.degree-1 {
 		newRoot := &Node{
-			keys:     make([]int, 0),
-			values:   make([]interface{}, 0),
-			children: make([]*Node, 0),
+			keys:     make([]int, 0, 2*t.degree-1),
+			values:   make([]interface{}, 0, 2*t.degree-1),
+			children: make([]*Node, 0, 2*t.degree),
 			isLeaf:   false,
 			degree:   t.degree,
 		}
@@ -140,6 +159,9 @@ func (t *BTree) insertNonFull(node *Node, key int, value interface{}) {
 
 // Search searches for a key in the B-Tree and returns the value, if found.
 func (t *BTree) Search(key int) (interface{}, bool) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
 	return t.searchNode(t.root, key)
 }
 
