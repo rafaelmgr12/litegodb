@@ -124,6 +124,15 @@ func (t *BTree) insertNonFull(node *Node, key int, value interface{}) {
 	i := len(node.keys) - 1
 
 	if node.isLeaf {
+
+		// Check for duplicate keys and update the value if found
+		for idx, k := range node.keys {
+			if k == key {
+				node.values[idx] = value
+				return
+			}
+		}
+
 		// find the correct position to insert the key
 		for i >= 0 && key < node.keys[i] {
 			i--
