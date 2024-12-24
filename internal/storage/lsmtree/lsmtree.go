@@ -9,8 +9,8 @@ import (
 
 // LSMTree represents a Log-Structured Merge Tree.
 type LSMTree struct {
-	memtable *btree.BTree
-	wal      *os.File
+	memtable *btree.BTree // In-memory B-Tree
+	wal      *os.File     // Write-ahead log
 }
 
 // NewLSMTree initializes a new LSMTree
