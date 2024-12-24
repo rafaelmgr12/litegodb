@@ -18,13 +18,13 @@ type BTree struct {
 // NewBTree creates a new B-Tree with the specified degree.
 func NewBTree(degree int) *BTree {
 	if degree < 2 {
-		degree = 2 // Garantir grau mínimo válido
+		degree = 2 // Ensure valid minimum degree
 	}
 	return &BTree{
 		root: &Node{
-			keys:     make([]int, 0),
-			values:   make([]interface{}, 0),
-			children: make([]*Node, 0),
+			keys:     make([]int, 0, 2*degree-1),
+			values:   make([]interface{}, 0, 2*degree-1),
+			children: make([]*Node, 0, 2*degree),
 			isLeaf:   true,
 			degree:   degree,
 		},
@@ -138,6 +138,7 @@ func (t *BTree) insertNonFull(node *Node, key int, value interface{}) {
 	}
 }
 
+// Search searches for a key in the B-Tree and returns the value, if found.
 func (t *BTree) Search(key int) (interface{}, bool) {
 	return t.searchNode(t.root, key)
 }
