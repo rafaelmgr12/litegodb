@@ -1,6 +1,9 @@
 # Chapter 2
 
-<!-- Here will be the introduction fo this chapter -->
+## Introduction
+In modern databases, efficient data retrieval and manipulation are fundamental requirements. This chapter explores the core data structures and algorithms that form the backbone of database indexing and query processing. From basic types of queries to advanced indexing methods like B-Trees and Log-Structured Merge Trees (LSM Trees), we delve into their characteristics, advantages, and limitations. The chapter also highlights the trade-offs between read and write performance, providing insights into how these structures optimize for different use cases.
+
+Starting with an overview of query types, we progress to the implementation and practicalities of various indexing methods. Each section builds upon the foundational concepts, preparing the reader to understand and compare the performance of these structures in real-world applications.
 
 ## 2.1 Types of queries
 
@@ -118,3 +121,70 @@ B-Trees are balanced n-ary trees commonly used for database indexing because of 
     - Works well with disk-based storage, where random access is slower than sequential reads.
 
 B-trees form the foundation of many modern database indexing systems, offering a balance between read and write performance. In subsequent sections, the implementation details and optimizations for B+ trees will be explored.
+
+
+## 2.4 LSM Trees
+
+The **Log-Structured Merge-Tree (LSM-Tree)** is a data structure optimized for managing large-scale datasets stored on disk. It is particularly suited for scenarios with high write-throughput requirements. Unlike B-Trees, which maintain a balanced structure with frequent disk writes, LSM-Trees leverage sequential I/O to handle writes efficiently while maintaining query performance.
+
+### Key Characteristics
+
+1. **Write-Optimization**:
+   - Writes are appended to a memory-resident structure and periodically flushed to disk. This reduces random I/O and increases write efficiency.
+2. **HiHierarchical Storage:**
+   - The data is organized into multiple levels, each holding sorted files. The structure grows as data is merged and promoted across levels.
+3. **Efficients Reads**:
+   - Point queries and range queries traverse the hierarchy starting from the smallest, most recent level, ensuring up-to-date and accurate results.
+4. **Compactation and Merging:**
+   - When data in a level grows beyond a threshold, it is merged with the next level. This compaction process reduces redundancy and maintains the sorted order.
+
+### Query and Update Mechanics
+
+1. **Query Process**:
+    - **Point Query**: Start at the top (most recent) level and search for the key sequentially down the levels.
+    - **Range Query**: Combine results from all levels, prioritizing higher levels for more recent data.
+2. **Update Process**:
+    - New data is inserted into an in-memory structure (often called a `MemTable`).
+    - Once full, the `MemTable` is flushed to disk as a new file at the top level.
+    - Periodic compaction merges smaller, older files into larger ones at lower levels.
+
+---
+
+### Performance Analysis
+
+1. **Read Efficiency**:
+    - Binary search is used within sorted files for efficient key lookup.
+    - Sequential file access enables fast range queries.
+2. **Write Efficiency**:
+    - In-memory buffering ensures that only sequential writes occur, minimizing disk overhead.
+3. **Space Efficiency**:
+    - Compaction reduces redundancy and ensures efficient use of disk space.
+4. **Concurrency**:
+    - Background compaction minimizes disruption to active queries and updates.
+
+### Advantages Over B-Trees
+
+1. **Reduced Write Amplification**:
+    - B-Trees perform frequent disk writes to maintain balance, whereas LSM-Trees amortize the cost via sequential flushes and batched merges.
+2. **Scalability**:
+    - LSM-Trees handle larger datasets by leveraging a multi-level hierarchy, enabling smooth growth without significant performance degradation.
+3. **Efficient Range Queries**:
+    - Sorted levels allow for seamless range aggregation across files.
+
+
+### Challenges
+
+1. **High Latency in Reads**:
+    - Queries may need to traverse multiple levels, increasing read latency, especially for point queries.
+2. **Compaction Overhead**:
+    - Merging and compacting data across levels can cause spikes in I/O usage, affecting overall system performance.
+3. **Garbage Collection**:
+    - The system must efficiently manage outdated or redundant data to prevent storage bloat.
+
+## Conclusion
+
+This chapter provided a comprehensive overview of the key data structures and algorithms used in database indexing. By examining query types, hashtables, sorted arrays, B-Trees, and LSM Trees, we explored how these structures cater to specific needs such as efficient point queries, range queries, and large-scale data management.
+
+The insights gained from this exploration reveal the trade-offs between these indexing techniques. While B-Trees are versatile and effective for a variety of queries, LSM Trees offer a write-optimized approach for high-throughput applications. Each method serves a unique purpose, demonstrating the importance of selecting the right tool for the specific demands of a database system.
+
+As we move forward, these foundational concepts will serve as a basis for more advanced topics in database design, including concurrency, transactions, and query optimization.
