@@ -86,6 +86,13 @@ func (dm *FileDiskManager) ReadPage(id int32) (Page, error) {
 	return page, nil
 }
 
+// GetLastAllocatedPageID returns the ID of the last allocated page.
+func (dm *FileDiskManager) GetLastAllocatedPageID() int32 {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+	return dm.nextID - 1
+}
+
 // Close closes the underlying file.
 func (dm *FileDiskManager) Close() error {
 	return dm.file.Close()

@@ -14,6 +14,9 @@ type DiskManager interface {
 	// It returns an error if the page does not exist.
 	ReadPage(id int32) (Page, error)
 
+	// GetLastAllocatedPageID returns the ID of the last allocated page.
+	GetLastAllocatedPageID() int32
+
 	// Close closes the DiskManager, releasing any open resources.
 	Close() error
 }
