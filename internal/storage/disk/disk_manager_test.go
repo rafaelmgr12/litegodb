@@ -76,6 +76,20 @@ func TestWriteReadPage(t *testing.T) {
 	}
 }
 
+func TestGetLastAllocatedPageID(t *testing.T) {
+	dm, cleanup := setupFileDiskManager(t)
+	defer cleanup()
+
+	_, err := dm.AllocatePage()
+	if err != nil {
+		t.Fatalf("error allocating page: %v", err)
+	}
+
+	if dm.GetLastAllocatedPageID() != 0 {
+		t.Fatalf("expected last allocated page ID to be 0, got %d", dm.GetLastAllocatedPageID())
+	}
+}
+
 func TestDiskManagerCloser(t *testing.T) {
 	dm, cleanup := setupFileDiskManager(t)
 	defer cleanup()
