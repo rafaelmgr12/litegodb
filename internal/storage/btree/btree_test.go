@@ -179,18 +179,13 @@ func TestBTreeInsertAndDelete(t *testing.T) {
 		}
 	}
 
-	// Testing removal if it's implemented
-	// Uncomment and modify if you have a Delete method
-
-	/*
-		for _, tc := range testCases {
-			btree.Delete(tc.key)
-			_, found := btree.Search(tc.key)
-			if found {
-				t.Fatalf("key %d found after deletion", tc.key)
-			}
+	for _, tc := range testCases {
+		btree.Delete(tc.key)
+		_, found := btree.Search(tc.key)
+		if found {
+			t.Fatalf("key %d found after deletion", tc.key)
 		}
-	*/
+	}
 }
 
 func TestBTreeBoundaries(t *testing.T) {

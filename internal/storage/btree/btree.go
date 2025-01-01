@@ -1,6 +1,7 @@
 package btree
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -189,4 +190,199 @@ func (t *BTree) searchNode(node *Node, key int) (interface{}, bool) {
 	}
 
 	return t.searchNode(node.children[i], key)
+}
+
+// Delete deletes a key from the B-Tree.
+func (t *BTree) Delete(key int) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	t.delete(t.root, key)
+}
+
+func (t *BTree) delete(node *Node, key int) error {
+	idx := 0
+
+	// Find the key in the current node
+	for idx < len(node.keys) && node.keys[idx] < key {
+		idx++
+	}
+
+	if idx < len(node.keys) && node.keys[idx] == key { // Key found
+		if node.isLeaf {
+			// Case 1: The node is a leaf
+			node.keys = append(node.keys[:idx], node.keys[idx+1:]...)
+			node.values = append(node.values[:idx], node.values[idx+1:]...)
+		} else {
+			t.deleteInternalNodeKey(node, key, idx)
+		}
+	} else { // Key not found in the current node
+		if node.isLeaf {
+			return fmt.Errorf("key not found")
+		}
+
+		if idx >= len(node.children) {
+			return fmt.Errorf("invalid child index %d for node with %d children", idx, len(node.children))
+		}
+
+		// Ensure the child has enough keys
+		if len(node.children[idx].keys) < t.degree {
+			t.ensureChildHasEnoughKeys(node, idx)
+		}
+
+		t.delete(node.children[idx], key)
+	}
+
+	return nil
+}
+
+func (t *BTree) deleteInternalNodeKey(node *Node, key, idx int) {
+	if len(node.children[idx].keys) >= t.degree {
+		predecessor := t.getPredecessor(node, idx)
+		node.keys[idx] = predecessor.key
+		node.values[idx] = predecessor.value
+		t.delete(node.children[idx], predecessor.key)
+	} else if len(node.children[idx+1].keys) >= t.degree {
+		successor := t.getSuccessor(node, idx)
+		node.keys[idx] = successor.key
+		node.values[idx] = successor.value
+		t.delete(node.children[idx+1], successor.key)
+	} else {
+		t.merge(node, idx)
+		t.delete(node.children[idx], key)
+	}
+}
+
+func (t *BTree) borrowFromLeft(node *Node, idx int) {
+	child := node.children[idx]
+	sibling := node.children[idx-1]
+
+	child.keys = append([]int{node.keys[idx-1]}, child.keys...)
+	child.values = append([]interface{}{node.values[idx-1]}, child.values...)
+
+	if !child.isLeaf {
+		child.children = append([]*Node{sibling.children[len(sibling.children)-1]}, child.children...)
+		sibling.children = sibling.children[:len(sibling.children)-1]
+	}
+
+	node.keys[idx-1] = sibling.keys[len(sibling.keys)-1]
+	node.values[idx-1] = sibling.values[len(sibling.values)-1]
+
+	sibling.keys = sibling.keys[:len(sibling.keys)-1]
+	sibling.values = sibling.values[:len(sibling.values)-1]
+}
+
+func (t *BTree) borrowFromRight(node *Node, idx int) {
+	child := node.children[idx]
+	sibling := node.children[idx+1]
+
+	child.keys = append(child.keys, node.keys[idx])
+	child.values = append(child.values, node.values[idx])
+
+	if !child.isLeaf {
+		child.children = append(child.children, sibling.children[0])
+		sibling.children = sibling.children[1:]
+	}
+
+	node.keys[idx] = sibling.keys[0]
+	node.values[idx] = sibling.values[0]
+
+	sibling.keys = sibling.keys[1:]
+	sibling.values = sibling.values[1:]
+}
+
+func (t *BTree) getPredecessor(node *Node, idx int) struct {
+	key   int
+	value interface{}
+} {
+	current := node.children[idx]
+	for !current.isLeaf {
+		current = current.children[len(current.children)-1]
+	}
+	return struct {
+		key   int
+		value interface{}
+	}{key: current.keys[len(current.keys)-1], value: current.values[len(current.values)-1]}
+}
+
+func (t *BTree) getSuccessor(node *Node, idx int) struct {
+	key   int
+	value interface{}
+} {
+	current := node.children[idx+1]
+	for !current.isLeaf {
+		current = current.children[0]
+	}
+	return struct {
+		key   int
+		value interface{}
+	}{key: current.keys[0], value: current.values[0]}
+}
+
+func (t *BTree) ensureChildHasEnoughKeys(node *Node, idx int) {
+	child := node.children[idx]
+
+	// Special case: if this is the root and it has only one child
+	if node == t.root && len(node.children) == 1 {
+		// Merge the root with its only child
+		t.root = child
+		return
+	}
+
+	// Try to borrow from left sibling if it exists and has enough keys
+	if idx > 0 && len(node.children[idx-1].keys) >= t.degree {
+		t.borrowFromLeft(node, idx)
+		return
+	}
+
+	// Try to borrow from right sibling if it exists and has enough keys
+	if idx < len(node.children)-1 && len(node.children[idx+1].keys) >= t.degree {
+		t.borrowFromRight(node, idx)
+		return
+	}
+
+	// If we can't borrow, we need to merge
+	// If we're at the first child, merge with the right sibling
+	if idx == 0 {
+		t.merge(node, 0)
+	} else {
+		// Otherwise, merge with the left sibling
+		t.merge(node, idx-1)
+	}
+}
+
+func (t *BTree) merge(parent *Node, idx int) {
+	// Special case for root with single child
+	if parent == t.root && len(parent.children) == 1 {
+		t.root = parent.children[0]
+		return
+	}
+
+	if idx < 0 || idx >= len(parent.children)-1 {
+		panic(fmt.Sprintf("merge: invalid index %d for parent with %d children", idx, len(parent.children)))
+	}
+
+	left := parent.children[idx]
+	right := parent.children[idx+1]
+
+	// Merge keys and values from parent and right into left
+	left.keys = append(left.keys, parent.keys[idx])
+	left.keys = append(left.keys, right.keys...)
+	left.values = append(left.values, parent.values[idx])
+	left.values = append(left.values, right.values...)
+
+	// If not leaf, merge children as well
+	if !left.isLeaf {
+		left.children = append(left.children, right.children...)
+	}
+
+	// Remove the key and child reference from parent
+	parent.keys = append(parent.keys[:idx], parent.keys[idx+1:]...)
+	parent.values = append(parent.values[:idx], parent.values[idx+1:]...)
+	parent.children = append(parent.children[:idx+1], parent.children[idx+2:]...)
+
+	// If root becomes empty after merging, make the merged node the new root
+	if parent == t.root && len(parent.keys) == 0 {
+		t.root = left
+	}
 }
