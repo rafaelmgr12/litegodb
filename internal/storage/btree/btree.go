@@ -14,6 +14,10 @@ type Node struct {
 	degree   int           // Minimum degree (defines the order of the tree).
 }
 
+func (n *Node) Children() []*Node {
+	return n.children
+}
+
 // BTree represents the overall B-Tree.
 type BTree struct {
 	root   *Node      // Root node of the tree.
@@ -36,6 +40,18 @@ func NewBTree(degree int) *BTree {
 		},
 		degree: degree,
 	}
+}
+
+func (t *BTree) Root() *Node {
+	return t.root
+}
+
+func (t *BTree) ChildrenNode() []*Node {
+	return t.root.children
+}
+
+func (t *BTree) Degree() int {
+	return t.degree
 }
 
 // Insert inserts a key-value pair into the B-Tree.
