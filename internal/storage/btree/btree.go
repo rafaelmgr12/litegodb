@@ -12,10 +12,49 @@ type Node struct {
 	children []*Node       // Children nodes (nil if leaf).
 	isLeaf   bool          // Whether the node is a leaf.
 	degree   int           // Minimum degree (defines the order of the tree).
+	id       int32         // Unique identifier for the node.
+}
+
+func (n *Node) Keys() []int {
+	return n.keys
+}
+
+func (n *Node) Values() []interface{} {
+	return n.values
 }
 
 func (n *Node) Children() []*Node {
 	return n.children
+}
+
+func (n *Node) IsLeaf() bool {
+	return n.isLeaf
+}
+
+func (n *Node) Degree() int {
+	return n.degree
+}
+
+func (n *Node) ID() int32 {
+	return n.id
+}
+
+func NewNodeComplete(id int32, keys []int, values []interface{}, children []*Node, isLeaf bool, degree int) *Node {
+	return &Node{
+		keys:     keys,
+		values:   values,
+		children: children,
+		isLeaf:   isLeaf,
+		degree:   degree,
+		id:       id,
+	}
+}
+
+func NewNode(id int32, degree int) *Node {
+	return &Node{
+		id:     id,
+		degree: degree,
+	}
 }
 
 // BTree represents the overall B-Tree.
@@ -52,6 +91,10 @@ func (t *BTree) ChildrenNode() []*Node {
 
 func (t *BTree) Degree() int {
 	return t.degree
+}
+
+func (t *BTree) SetRoot(root *Node) {
+	t.root = root
 }
 
 // Insert inserts a key-value pair into the B-Tree.

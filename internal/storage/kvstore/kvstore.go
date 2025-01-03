@@ -3,6 +3,8 @@ package kvstore
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"time"
 
 	"github.com/rafaelmgr12/litegodb/internal/storage/btree"
 	"github.com/rafaelmgr12/litegodb/internal/storage/disk"
@@ -68,6 +70,32 @@ func (kv *BTreeKVStore) Flush() error {
 
 // Load restores the KVStore state by replaying the append-only log.
 func (kv *BTreeKVStore) Load() error {
+	metaPage, err := kv.diskManager.ReadPage(0)
+	if err != nil {
+		return err
+	}
+
+	buf := bytes.NewBuffer(metaPage.Data())
+	var rootID int32
+	var degree int32
+	binary.Read(buf, binary.LittleEndian, &rootID)
+	binary.Read(buf, binary.LittleEndian, &degree)
+
+	rootPage, err := kv.diskManager.ReadPage(rootID)
+	if err != nil {
+		return err
+	}
+
+	// Pass kv.GetPageDataByID as the fetch function
+	root, err := deserializeNode(rootPage.Data(), kv.GetPageDataByID)
+	if err != nil {
+		return err
+	}
+
+	kv.btree = btree.NewBTree(int(degree))
+	kv.btree.SetRoot(root)
+
+	// Replay the log
 	entries, err := kv.log.Replay()
 	if err != nil {
 		return err
@@ -81,6 +109,15 @@ func (kv *BTreeKVStore) Load() error {
 		}
 	}
 	return nil
+}
+
+// GetPageDataByID retrieves the raw page data for a given page ID.
+func (kv *BTreeKVStore) GetPageDataByID(pageID int32) ([]byte, error) {
+	page, err := kv.diskManager.ReadPage(pageID)
+	if err != nil {
+		return nil, err
+	}
+	return page.Data(), nil
 }
 
 // saveNode recursively saves a B-Tree node and its children to disk.
@@ -111,6 +148,16 @@ func (kv *BTreeKVStore) Close() error {
 	return kv.diskManager.Close()
 }
 
+// StartPeriodicFlush periodically saves the B-Tree to disk at the specified interval.
+func (kv *BTreeKVStore) StartPeriodicFlush(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	go func() {
+		for range ticker.C {
+			kv.Flush()
+		}
+	}()
+}
+
 // saveMetadata saves the metadata (e.g., root ID, degree) to disk.
 func (kv *BTreeKVStore) saveMetadata(rootID int32, degree int) error {
 	metaPage := disk.NewFilePage(0)
@@ -121,8 +168,153 @@ func (kv *BTreeKVStore) saveMetadata(rootID int32, degree int) error {
 	return kv.diskManager.WritePage(metaPage)
 }
 
-// serializeNode serializes a B-Tree node to a byte slice.
 func serializeNode(node *btree.Node) ([]byte, error) {
-	// Implementation of node serialization
-	return nil, nil
+	buffer := new(bytes.Buffer)
+
+	// ID
+	if err := binary.Write(buffer, binary.LittleEndian, node.ID()); err != nil {
+		return nil, err
+	}
+
+	// IsLeaf
+	if err := binary.Write(buffer, binary.LittleEndian, node.IsLeaf()); err != nil {
+		return nil, err
+	}
+
+	// Degree
+	if err := binary.Write(buffer, binary.LittleEndian, int32(node.Degree())); err != nil {
+		return nil, err
+	}
+
+	// Keys
+	numKeys := int32(len(node.Keys()))
+	if err := binary.Write(buffer, binary.LittleEndian, numKeys); err != nil {
+		return nil, err
+	}
+	for _, key := range node.Keys() {
+		if err := binary.Write(buffer, binary.LittleEndian, int32(key)); err != nil {
+			return nil, err
+		}
+	}
+
+	// Values
+	for _, value := range node.Values() {
+		valueStr, ok := value.(string)
+		if !ok {
+			return nil, errors.New("invalid value type")
+		}
+		if err := binary.Write(buffer, binary.LittleEndian, int32(len(valueStr))); err != nil {
+			return nil, err
+		}
+		if _, err := buffer.WriteString(valueStr); err != nil {
+			return nil, err
+		}
+	}
+
+	// Children
+	numChildren := int32(len(node.Children()))
+	if err := binary.Write(buffer, binary.LittleEndian, numChildren); err != nil {
+		return nil, err
+	}
+	for _, child := range node.Children() {
+		if err := binary.Write(buffer, binary.LittleEndian, child.ID()); err != nil {
+			return nil, err
+		}
+	}
+
+	return buffer.Bytes(), nil
+}
+
+func deserializeNode(data []byte, fetchPageData func(int32) ([]byte, error)) (*btree.Node, error) {
+	buffer := bytes.NewReader(data)
+
+	var id int32
+	if err := binary.Read(buffer, binary.LittleEndian, &id); err != nil {
+		return nil, err
+	}
+
+	var isLeaf bool
+	if err := binary.Read(buffer, binary.LittleEndian, &isLeaf); err != nil {
+		return nil, err
+	}
+
+	var degree int32
+	if err := binary.Read(buffer, binary.LittleEndian, &degree); err != nil {
+		return nil, err
+	}
+
+	var numKeys int32
+	if err := binary.Read(buffer, binary.LittleEndian, &numKeys); err != nil {
+		return nil, err
+	}
+
+	keys := make([]int, numKeys)
+	for i := 0; i < int(numKeys); i++ {
+		var key int32
+		if err := binary.Read(buffer, binary.LittleEndian, &key); err != nil {
+			return nil, err
+		}
+		keys[i] = int(key)
+	}
+
+	values := make([]interface{}, numKeys)
+	for i := 0; i < int(numKeys); i++ {
+		var valueLen int32
+		if err := binary.Read(buffer, binary.LittleEndian, &valueLen); err != nil {
+			return nil, err
+		}
+		valueStr := make([]byte, valueLen)
+		if _, err := buffer.Read(valueStr); err != nil {
+			return nil, err
+		}
+		values[i] = string(valueStr)
+	}
+
+	var numChildren int32
+	if err := binary.Read(buffer, binary.LittleEndian, &numChildren); err != nil {
+		return nil, err
+	}
+
+	children := make([]*btree.Node, numChildren)
+	if !isLeaf {
+		for i := 0; i < int(numChildren); i++ {
+			var childID int32
+			if err := binary.Read(buffer, binary.LittleEndian, &childID); err != nil {
+				return nil, err
+			}
+
+			// Fetch serialized child data
+			childData, err := fetchPageData(childID)
+			if err != nil {
+				return nil, err
+			}
+
+			// Deserialize child node
+			children[i], err = deserializeNode(childData, fetchPageData)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	node := btree.NewNodeComplete(
+		id,
+		keys,
+		values,
+		children,
+		isLeaf,
+		int(degree),
+	)
+
+	return node, nil
+}
+
+// Exported function for testing serialization.
+func SerializeNodeForTest(node *btree.Node) ([]byte, error) {
+	return serializeNode(node)
+}
+
+// Exported function for testing deserialization.
+func DeserializeNodeForTest(data []byte, fetchPageData func(int32) ([]byte, error)) (*btree.Node, error) {
+	return deserializeNode(data, fetchPageData)
 }
