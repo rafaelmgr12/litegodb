@@ -17,6 +17,9 @@ type DiskManager interface {
 	// GetLastAllocatedPageID returns the ID of the last allocated page.
 	GetLastAllocatedPageID() int32
 
+	// FreePage adds the page ID back to the freelist, making it available for future allocation.
+	FreePage(id int32)
+
 	// Close closes the DiskManager, releasing any open resources.
 	Close() error
 }

@@ -99,3 +99,24 @@ func TestDiskManagerCloser(t *testing.T) {
 	}
 
 }
+
+func TestFreePage(t *testing.T) {
+	dm, cleanup := setupFileDiskManager(t)
+	defer cleanup()
+
+	page, err := dm.AllocatePage()
+	if err != nil {
+		t.Fatalf("error allocating page: %v", err)
+	}
+
+	dm.FreePage(page.ID())
+
+	freePage, err := dm.AllocatePage()
+	if err != nil {
+		t.Fatalf("error re-allocating freed page: %v", err)
+	}
+
+	if freePage.ID() != page.ID() {
+		t.Fatalf("expected page ID %d, got %d", page.ID(), freePage.ID())
+	}
+}

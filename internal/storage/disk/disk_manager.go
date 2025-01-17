@@ -1,8 +1,12 @@
+// The `FileDiskManager` struct in the `disk` package provides methods for managing disk storage of
+// pages in a file-based system.
 package disk
 
 import (
 	"os"
 	"sync"
+
+	"github.com/rafaelmgr12/litegodb/internal/storage/freelist"
 )
 
 // FileDiskManager is a concrete implementation of the DiskManager interface.
@@ -10,6 +14,7 @@ import (
 type FileDiskManager struct {
 	file   *os.File
 	mu     sync.Mutex
+	fl     *freelist.Freelist
 	nextID int32
 }
 
@@ -30,6 +35,7 @@ func NewFileDiskManager(filePath string) (*FileDiskManager, error) {
 	nextID := int32(info.Size() / PageSize)
 	return &FileDiskManager{
 		file:   file,
+		fl:     freelist.NewFreelist(),
 		nextID: nextID,
 	}, nil
 }
@@ -46,8 +52,15 @@ func (dm *FileDiskManager) AllocatePage() (Page, error) {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 
-	page := NewFilePage(dm.nextID)
-	dm.nextID++
+	var pageID int32
+	if id, ok := dm.fl.GetFreePage(); ok {
+		pageID = id
+	} else {
+		pageID = dm.nextID
+		dm.nextID++
+	}
+
+	page := NewFilePage(pageID)
 	return page, nil
 }
 
@@ -91,6 +104,14 @@ func (dm *FileDiskManager) GetLastAllocatedPageID() int32 {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 	return dm.nextID - 1
+}
+
+// The `FreePage` method in the `FileDiskManager` struct is responsible for adding the given page ID to
+// the freelist.
+func (dm *FileDiskManager) FreePage(id int32) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+	dm.fl.Add(id)
 }
 
 // Close closes the underlying file.
