@@ -18,27 +18,32 @@ func main() {
 	defer diskManager.Close()
 
 	// Initialize the key-value store with a degree of 2 for the B-Tree (minimalist approach)
-	kvStore, err := kvstore.NewBTreeKVStore(2, diskManager, "log.db")
+	kvStore, err := kvstore.NewBTreeKVStore(2, diskManager, "wal-logs.log")
 	if err != nil {
 		log.Fatalf("Failed to create the key-value store: %v", err)
 	}
 	defer kvStore.Close()
+
+	tableName := "test_table"
+	if err := kvStore.CreateTableName(tableName, 2); err != nil {
+		log.Fatalf("Failed to create table: %v", err)
+	}
 
 	// Start periodic flushing to disk every 10 seconds
 	kvStore.StartPeriodicFlush(10 * time.Second)
 
 	// Put some key-value pairs
 	log.Println("Putting key-value pairs...")
-	if err := kvStore.Put(1, "value1"); err != nil {
+	if err := kvStore.Put(tableName, 1, "value1"); err != nil {
 		log.Fatalf("Failed to put key-value pair: %v", err)
 	}
-	if err := kvStore.Put(2, "value2"); err != nil {
+	if err := kvStore.Put(tableName, 2, "value2"); err != nil {
 		log.Fatalf("Failed to put key-value pair: %v", err)
 	}
 
 	// Get key-value pairs
 	log.Println("Getting key-value pairs...")
-	value, found, err := kvStore.Get(1)
+	value, found, err := kvStore.Get(tableName, 1)
 	if err != nil {
 		log.Fatalf("Failed to get key-value pair: %v", err)
 	}
@@ -48,7 +53,7 @@ func main() {
 		fmt.Println("Key 1 not found")
 	}
 
-	value, found, err = kvStore.Get(3)
+	value, found, err = kvStore.Get(tableName, 3)
 	if err != nil {
 		log.Fatalf("Failed to get key-value pair: %v", err)
 	}
@@ -60,12 +65,12 @@ func main() {
 
 	// Delete a key-value pair
 	log.Println("Deleting key 2...")
-	if err := kvStore.Delete(2); err != nil {
+	if err := kvStore.Delete(tableName, 2); err != nil {
 		log.Fatalf("Failed to delete key-value pair: %v", err)
 	}
 
 	// Attempt to get the deleted key
-	value, found, err = kvStore.Get(2)
+	value, found, err = kvStore.Get(tableName, 2)
 	if err != nil {
 		log.Fatalf("Failed to get key-value pair: %v", err)
 	}
