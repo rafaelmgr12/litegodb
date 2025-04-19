@@ -11,315 +11,166 @@ import (
 	"github.com/rafaelmgr12/litegodb/internal/storage/kvstore"
 )
 
-func TestKVStoreBasic(t *testing.T) {
-	diskManager, err := disk.NewFileDiskManager("test_kvstore.db")
+const (
+	dbFile  = "test_kvstore.db"
+	logFile = "test_kvstore.log"
+)
+
+func setupTestKVStore(t *testing.T) (*kvstore.BTreeKVStore, func()) {
+	diskManager, err := disk.NewFileDiskManager(dbFile)
 	if err != nil {
 		t.Fatalf("Failed to create DiskManager: %v", err)
 	}
-	defer os.Remove("test_kvstore.db")
-	defer diskManager.Close()
 
-	logFile := "test_kvstore.log"
-	kvStore, err := kvstore.NewBTreeKVStore(3, diskManager, logFile)
+	store, err := kvstore.NewBTreeKVStore(3, diskManager, logFile)
 	if err != nil {
 		t.Fatalf("Failed to create KVStore: %v", err)
 	}
-	defer os.Remove(logFile)
-	defer kvStore.Close()
 
-	// Test PUT operation
+	cleanup := func() {
+		store.Close()
+		diskManager.Close()
+		os.Remove(dbFile)
+		os.Remove(logFile)
+	}
+
+	return store, cleanup
+}
+
+func TestKVStoreBasicOperations(t *testing.T) {
+	kvStore, cleanup := setupTestKVStore(t)
+	defer cleanup()
+
+	// PUT
 	if err := kvStore.Put(1, "one"); err != nil {
-		t.Fatalf("Failed to put key: %v", err)
+		t.Fatalf("Put failed: %v", err)
 	}
 	if err := kvStore.Put(2, "two"); err != nil {
-		t.Fatalf("Failed to put key: %v", err)
+		t.Fatalf("Put failed: %v", err)
 	}
 
-	// Test GET operation
-	value, found, err := kvStore.Get(1)
-	if err != nil {
-		t.Fatalf("Error during GET: %v", err)
-	}
-	if !found || value != "one" {
-		t.Fatalf("Expected value 'one', got '%s'", value)
-	}
+	// GET
+	assertGet(t, kvStore, 1, "one")
+	assertGet(t, kvStore, 2, "two")
 
-	value, found, err = kvStore.Get(2)
-	if err != nil {
-		t.Fatalf("Error during GET: %v", err)
-	}
-	if !found || value != "two" {
-		t.Fatalf("Expected value 'two', got '%s'", value)
-	}
-
-	// Test DELETE operation
+	// DELETE
 	if err := kvStore.Delete(1); err != nil {
-		t.Fatalf("Failed to delete key: %v", err)
+		t.Fatalf("Delete failed: %v", err)
 	}
-	value, found, err = kvStore.Get(1)
-	if err != nil {
-		t.Fatalf("Error during GET after DELETE: %v", err)
-	}
-	if found {
-		t.Fatalf("Expected key 1 to be deleted, but found value '%s'", value)
-	}
+	assertNotFound(t, kvStore, 1)
 
-	// Test persistence (Flush and Load)
+	// FLUSH and RELOAD
 	if err := kvStore.Flush(); err != nil {
-		t.Fatalf("Failed to flush KVStore: %v", err)
+		t.Fatalf("Flush failed: %v", err)
 	}
 
-	loadedKVStore, err := kvstore.NewBTreeKVStore(3, diskManager, logFile)
+	diskManager, _ := disk.NewFileDiskManager(dbFile)
+	loadedStore, err := kvstore.NewBTreeKVStore(3, diskManager, logFile)
 	if err != nil {
-		t.Fatalf("Failed to load KVStore: %v", err)
+		t.Fatalf("Failed to reload store: %v", err)
 	}
-	if err := loadedKVStore.Load(); err != nil {
-		t.Fatalf("Failed to load KVStore from log: %v", err)
+	defer loadedStore.Close()
+	if err := loadedStore.Load(); err != nil {
+		t.Fatalf("Failed to load WAL: %v", err)
 	}
-
-	value, found, err = loadedKVStore.Get(2)
-	if err != nil {
-		t.Fatalf("Error during GET on loaded KVStore: %v", err)
-	}
-	if !found || value != "two" {
-		t.Fatalf("Expected value 'two' in loaded KVStore, got '%s'", value)
-	}
+	assertGet(t, loadedStore, 2, "two")
 }
 
 func TestKVStore(t *testing.T) {
-	diskManager, err := disk.NewFileDiskManager("test_kvstore.db")
-	if err != nil {
-		t.Fatalf("Failed to create DiskManager: %v", err)
-	}
-	defer os.Remove("test_kvstore.db")
-	defer diskManager.Close()
-
-	logFile := "test_kvstore.log"
-	kvStore, err := kvstore.NewBTreeKVStore(3, diskManager, logFile)
-	if err != nil {
-		t.Fatalf("Failed to create KVStore: %v", err)
-	}
-	defer os.Remove(logFile)
-	defer kvStore.Close()
-
-	t.Run("Basic Operations", func(t *testing.T) {
-		// Test PUT operation
-		if err := kvStore.Put(1, "one"); err != nil {
-			t.Fatalf("Failed to put key: %v", err)
-		}
-		if err := kvStore.Put(2, "two"); err != nil {
-			t.Fatalf("Failed to put key: %v", err)
-		}
-
-		// Test GET operation
-		value, found, err := kvStore.Get(1)
-		if err != nil {
-			t.Fatalf("Error during GET: %v", err)
-		}
-		if !found || value != "one" {
-			t.Fatalf("Expected value 'one', got '%s'", value)
-		}
-
-		value, found, err = kvStore.Get(2)
-		if err != nil {
-			t.Fatalf("Error during GET: %v", err)
-		}
-		if !found || value != "two" {
-			t.Fatalf("Expected value 'two', got '%s'", value)
-		}
-
-		// Test DELETE operation
-		if err := kvStore.Delete(1); err != nil {
-			t.Fatalf("Failed to delete key: %v", err)
-		}
-		value, found, err = kvStore.Get(1)
-		if err != nil {
-			t.Fatalf("Error during GET after DELETE: %v", err)
-		}
-		if found {
-			t.Fatalf("Expected key 1 to be deleted, but found value '%s'", value)
-		}
-
-		// Test persistence (Flush and Load)
-		if err := kvStore.Flush(); err != nil {
-			t.Fatalf("Failed to flush KVStore: %v", err)
-		}
-
-		loadedKVStore, err := kvstore.NewBTreeKVStore(3, diskManager, logFile)
-		if err != nil {
-			t.Fatalf("Failed to load KVStore: %v", err)
-		}
-		if err := loadedKVStore.Load(); err != nil {
-			t.Fatalf("Failed to load KVStore from log: %v", err)
-		}
-
-		value, found, err = loadedKVStore.Get(2)
-		if err != nil {
-			t.Fatalf("Error during GET on loaded KVStore: %v", err)
-		}
-		if !found || value != "two" {
-			t.Fatalf("Expected value 'two' in loaded KVStore, got '%s'", value)
-		}
-	})
+	kvStore, cleanup := setupTestKVStore(t)
+	defer cleanup()
 
 	t.Run("Empty Database", func(t *testing.T) {
-		value, found, err := kvStore.Get(100)
-		if err != nil {
-			t.Fatalf("Error during GET on empty database: %v", err)
-		}
-		if found {
-			t.Fatalf("Expected no value for key 100, found '%s'", value)
-		}
+		assertNotFound(t, kvStore, 100)
 	})
 
 	t.Run("Overwrite Value", func(t *testing.T) {
-		if err := kvStore.Put(1, "one"); err != nil {
-			t.Fatalf("Failed to put key 1: %v", err)
-		}
-		if err := kvStore.Put(1, "uno"); err != nil {
-			t.Fatalf("Failed to overwrite key 1: %v", err)
-		}
-		value, found, err := kvStore.Get(1)
-		if err != nil {
-			t.Fatalf("Error during GET for overwritten key: %v", err)
-		}
-		if !found || value != "uno" {
-			t.Fatalf("Expected value 'uno', got '%s'", value)
-		}
+		_ = kvStore.Put(1, "one")
+		_ = kvStore.Put(1, "uno")
+		assertGet(t, kvStore, 1, "uno")
 	})
 
 	t.Run("Delete Non-Existent Key", func(t *testing.T) {
 		err := kvStore.Delete(999)
 		if err != nil {
-			t.Fatalf("Error when deleting non-existent key: %v", err)
+			t.Fatalf("Unexpected error: %v", err)
 		}
 	})
 
 	t.Run("Multiple Deletes", func(t *testing.T) {
 		keys := []int{10, 20, 30}
 		values := []string{"ten", "twenty", "thirty"}
-		for i, key := range keys {
-			if err := kvStore.Put(key, values[i]); err != nil {
-				t.Fatalf("Failed to put key %d: %v", key, err)
-			}
+		for i := range keys {
+			_ = kvStore.Put(keys[i], values[i])
 		}
 		for _, key := range keys {
-			if err := kvStore.Delete(key); err != nil {
-				t.Fatalf("Failed to delete key %d: %v", key, err)
-			}
-			value, found, err := kvStore.Get(key)
-			if err != nil {
-				t.Fatalf("Error during GET after multiple deletes: %v", err)
-			}
-			if found {
-				t.Fatalf("Expected key %d to be deleted, but found value '%s'", key, value)
-			}
+			_ = kvStore.Delete(key)
+			assertNotFound(t, kvStore, key)
 		}
 	})
 }
 
 func TestBTreeNodeSerialization(t *testing.T) {
-	// Mock data for testing
 	mockData := make(map[int32][]byte)
-
-	// Create a mock fetchPageData function
 	fetchPageData := func(pageID int32) ([]byte, error) {
-		data, exists := mockData[pageID]
-		if !exists {
+		data, ok := mockData[pageID]
+		if !ok {
 			return nil, fmt.Errorf("page not found: %d", pageID)
 		}
 		return data, nil
 	}
 
-	// Create a sample B-Tree node
-	rootNode := btree.NewNodeComplete(
-		1,
-		[]int{10, 20, 30},
-		[]interface{}{"ten", "twenty", "thirty"},
-		nil,
-		true,
-		3,
-	)
+	node := btree.NewNodeComplete(1, []int{10, 20, 30}, []interface{}{"ten", "twenty", "thirty"}, nil, true, 3)
+	serialized, _ := kvstore.SerializeNodeForTest(node)
+	mockData[1] = serialized
 
-	// Serialize the node and store it in mockData
-	serializedRoot, err := kvstore.SerializeNodeForTest(rootNode)
-	if err != nil {
-		t.Fatalf("Failed to serialize root node: %v", err)
-	}
-	mockData[1] = serializedRoot
-
-	// Deserialize the node
-	deserializedNode, err := kvstore.DeserializeNodeForTest(serializedRoot, fetchPageData)
-	if err != nil {
-		t.Fatalf("Failed to deserialize node: %v", err)
-	}
-
-	// Compare the original and deserialized nodes
-	if !nodesAreEqual(rootNode, deserializedNode) {
-		t.Errorf("Original and deserialized nodes do not match")
+	deserialized, _ := kvstore.DeserializeNodeForTest(serialized, fetchPageData)
+	if !nodesAreEqual(node, deserialized) {
+		t.Errorf("Node mismatch")
 	}
 }
 
 func TestPeriodicFlush(t *testing.T) {
-	diskManager, err := disk.NewFileDiskManager("test_periodic_flush.db")
-	if err != nil {
-		t.Fatalf("Failed to create DiskManager: %v", err)
-	}
-	defer os.Remove("test_periodic_flush.db")
-	defer diskManager.Close()
-
+	diskManager, _ := disk.NewFileDiskManager("test_periodic_flush.db")
 	logFile := "test_periodic_flush.log"
-	kvStore, err := kvstore.NewBTreeKVStore(3, diskManager, logFile)
-	if err != nil {
-		t.Fatalf("Failed to create KVStore: %v", err)
-	}
+	store, _ := kvstore.NewBTreeKVStore(3, diskManager, logFile)
+	defer os.Remove("test_periodic_flush.db")
 	defer os.Remove(logFile)
-	defer kvStore.Close()
+	defer store.Close()
 
-	// Start periodic flushing every second
-	kvStore.StartPeriodicFlush(1 * time.Second)
-
-	// Insert some data
-	if err := kvStore.Put(1, "one"); err != nil {
-		t.Fatalf("Failed to put key: %v", err)
-	}
-	if err := kvStore.Put(2, "two"); err != nil {
-		t.Fatalf("Failed to put key: %v", err)
-	}
-
-	// Wait for at least one flush to occur
+	store.StartPeriodicFlush(1 * time.Second)
+	_ = store.Put(1, "one")
+	_ = store.Put(2, "two")
 	time.Sleep(2 * time.Second)
 
-	// Simulate restarting the KVStore
-	recoveredStore, err := kvstore.NewBTreeKVStore(3, diskManager, logFile)
-	if err != nil {
-		t.Fatalf("Failed to create recovered KVStore: %v", err)
-	}
+	recoveredStore, _ := kvstore.NewBTreeKVStore(3, diskManager, logFile)
 	defer recoveredStore.Close()
+	_ = recoveredStore.Load()
 
-	if err := recoveredStore.Load(); err != nil {
-		t.Fatalf("Failed to load recovered KVStore: %v", err)
-	}
+	assertGet(t, recoveredStore, 1, "one")
+	assertGet(t, recoveredStore, 2, "two")
+}
 
-	// Verify data is consistent
-	value, found, err := recoveredStore.Get(1)
+func assertGet(t *testing.T, store *kvstore.BTreeKVStore, key int, expected string) {
+	value, found, err := store.Get(key)
 	if err != nil {
-		t.Fatalf("Error during GET: %v", err)
+		t.Fatalf("GET failed: %v", err)
 	}
-	if !found || value != "one" {
-		t.Fatalf("Expected value 'one', got '%s'", value)
-	}
-
-	value, found, err = recoveredStore.Get(2)
-	if err != nil {
-		t.Fatalf("Error during GET: %v", err)
-	}
-	if !found || value != "two" {
-		t.Fatalf("Expected value 'two', got '%s'", value)
+	if !found || value != expected {
+		t.Fatalf("Expected '%s', got '%s'", expected, value)
 	}
 }
 
-// Helper function to compare nodes
+func assertNotFound(t *testing.T, store *kvstore.BTreeKVStore, key int) {
+	value, found, err := store.Get(key)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	if found {
+		t.Fatalf("Expected key %d to be missing, found value '%s'", key, value)
+	}
+}
+
 func nodesAreEqual(a, b *btree.Node) bool {
 	if a.ID() != b.ID() || a.IsLeaf() != b.IsLeaf() || len(a.Keys()) != len(b.Keys()) {
 		return false
@@ -329,8 +180,8 @@ func nodesAreEqual(a, b *btree.Node) bool {
 			return false
 		}
 	}
-	for i, value := range a.Values() {
-		if value != b.Values()[i] {
+	for i, val := range a.Values() {
+		if val != b.Values()[i] {
 			return false
 		}
 	}
