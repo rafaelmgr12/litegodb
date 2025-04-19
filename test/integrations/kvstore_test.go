@@ -17,7 +17,7 @@ func setupKVStore(t *testing.T) (*kvstore.BTreeKVStore, func()) {
 	}
 
 	// Initialize key-value store
-	kvStore, err := kvstore.NewBTreeKVStore(3, diskManager, "test_log.db")
+	kvStore, err := kvstore.NewBTreeKVStore(3, diskManager, "test_log.log")
 	if err != nil {
 		t.Fatalf("Failed to create KVStore: %v", err)
 	}
@@ -26,7 +26,7 @@ func setupKVStore(t *testing.T) (*kvstore.BTreeKVStore, func()) {
 	cleanup := func() {
 		kvStore.Close()
 		os.Remove("test_data.db")
-		os.Remove("test_log.db")
+		os.Remove("test_log.log")
 	}
 
 	return kvStore, cleanup
