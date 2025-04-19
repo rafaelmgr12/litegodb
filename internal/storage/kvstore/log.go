@@ -12,6 +12,7 @@ type LogEntry struct {
 	Operation string `json:"operation"` // "PUT" or "DELETE"
 	Key       int    `json:"key"`
 	Value     string `json:"value,omitempty"` // Only used for "PUT" operations
+	Table     string `json:"table"`           // Table name
 }
 
 // Serialize converts a LogEntry to a byte slice for writing to the log.

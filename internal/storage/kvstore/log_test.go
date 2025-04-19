@@ -22,11 +22,11 @@ func TestAppendOnlyLog(t *testing.T) {
 	}
 	defer log.Close()
 
-	// Append entries to the log
+	// Append entries to the log, including the table name
 	entries := []*kvstore.LogEntry{
-		{Operation: "PUT", Key: 1, Value: "one"},
-		{Operation: "PUT", Key: 2, Value: "two"},
-		{Operation: "DELETE", Key: 1},
+		{Operation: "PUT", Key: 1, Value: "one", Table: "table1"},
+		{Operation: "PUT", Key: 2, Value: "two", Table: "table1"},
+		{Operation: "DELETE", Key: 1, Table: "table1"},
 	}
 
 	for _, entry := range entries {
@@ -46,7 +46,7 @@ func TestAppendOnlyLog(t *testing.T) {
 	}
 
 	for i, entry := range replayedEntries {
-		if entries[i].Operation != entry.Operation || entries[i].Key != entry.Key || entries[i].Value != entry.Value {
+		if entries[i].Operation != entry.Operation || entries[i].Key != entry.Key || entries[i].Value != entry.Value || entries[i].Table != entry.Table {
 			t.Errorf("Mismatch at entry %d: expected %+v, got %+v", i, entries[i], entry)
 		}
 	}
@@ -57,6 +57,7 @@ func TestSerialization(t *testing.T) {
 		Operation: "PUT",
 		Key:       1,
 		Value:     "one",
+		Table:     "table1",
 	}
 	data, err := originalEntry.Serialize()
 	if err != nil {
@@ -68,7 +69,7 @@ func TestSerialization(t *testing.T) {
 		t.Fatalf("Failed to deserialize log entry: %v", err)
 	}
 
-	if originalEntry.Operation != deserializedEntry.Operation || originalEntry.Key != deserializedEntry.Key || originalEntry.Value != deserializedEntry.Value {
+	if originalEntry.Operation != deserializedEntry.Operation || originalEntry.Key != deserializedEntry.Key || originalEntry.Value != deserializedEntry.Value || originalEntry.Table != deserializedEntry.Table {
 		t.Errorf("Mismatch after serialization/deserialization: expected %+v, got %+v", originalEntry, deserializedEntry)
 	}
 
@@ -92,7 +93,7 @@ func TestClose(t *testing.T) {
 	}
 
 	// Ensure we can't append to a closed log
-	entry := &kvstore.LogEntry{Operation: "PUT", Key: 1, Value: "one"}
+	entry := &kvstore.LogEntry{Operation: "PUT", Key: 1, Value: "one", Table: "table1"}
 	if err := log.Append(entry); err == nil {
 		t.Fatal("Expected error when appending to a closed log, but got nil")
 	}
@@ -138,7 +139,7 @@ func TestCorruptedLogEntries(t *testing.T) {
 	defer log.Close()
 
 	// Append a valid entry and then corrupted data
-	validEntry := &kvstore.LogEntry{Operation: "PUT", Key: 1, Value: "one"}
+	validEntry := &kvstore.LogEntry{Operation: "PUT", Key: 1, Value: "one", Table: "table1"}
 	err = log.Append(validEntry)
 	if err != nil {
 		t.Fatalf("Failed to append log entry: %v", err)
@@ -160,7 +161,7 @@ func TestCorruptedLogEntries(t *testing.T) {
 		t.Fatalf("Expected 1 valid entry, got %d", len(replayedEntries))
 	}
 
-	if replayedEntries[0].Operation != validEntry.Operation || replayedEntries[0].Key != validEntry.Key || replayedEntries[0].Value != validEntry.Value {
+	if replayedEntries[0].Operation != validEntry.Operation || replayedEntries[0].Key != validEntry.Key || replayedEntries[0].Value != validEntry.Value || replayedEntries[0].Table != validEntry.Table {
 		t.Errorf("Mismatch in valid entry after corruption: expected %+v, got %+v", validEntry, replayedEntries[0])
 	}
 }
@@ -185,7 +186,7 @@ func TestConcurrentAppend(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			entry := &kvstore.LogEntry{Operation: "PUT", Key: i, Value: "some value"}
+			entry := &kvstore.LogEntry{Operation: "PUT", Key: i, Value: "some value", Table: "table1"}
 			if err := log.Append(entry); err != nil {
 				t.Errorf("Failed to append log entry: %v", err)
 			}
@@ -203,4 +204,16 @@ func TestConcurrentAppend(t *testing.T) {
 		t.Fatalf("Expected %d entries, got %d", entryCount, len(replayedEntries))
 	}
 
+	for i := 1; i <= entryCount; i++ {
+		found := false
+		for _, entry := range replayedEntries {
+			if entry.Key == i && entry.Table == "table1" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("Expected to find entry with key %d and table 'table1', but it was not found", i)
+		}
+	}
 }
