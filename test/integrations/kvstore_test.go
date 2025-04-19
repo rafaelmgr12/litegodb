@@ -107,7 +107,7 @@ func testCrashRecovery(t *testing.T) {
 			t.Fatalf("Failed to create DiskManager: %v", err)
 		}
 
-		kvStore, err = kvstore.NewBTreeKVStore(3, diskManager, "test_log.db")
+		kvStore, err = kvstore.NewBTreeKVStore(3, diskManager, "test_log.log")
 		if err != nil {
 			t.Fatalf("Failed to create KVStore: %v", err)
 		}
@@ -162,7 +162,7 @@ func testPeriodicFlush(t *testing.T) {
 		}
 		defer diskManager.Close()
 
-		recoveredStore, err := kvstore.NewBTreeKVStore(3, diskManager, "test_log.db")
+		recoveredStore, err := kvstore.NewBTreeKVStore(3, diskManager, "test_log.log")
 		if err != nil {
 			t.Fatalf("Failed to create recovered KVStore: %v", err)
 		}
