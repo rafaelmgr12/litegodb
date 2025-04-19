@@ -41,26 +41,28 @@ func TestKVStoreBasicOperations(t *testing.T) {
 	kvStore, cleanup := setupTestKVStore(t)
 	defer cleanup()
 
-	// PUT
-	if err := kvStore.Put(1, "one"); err != nil {
+	table := "test_table"
+	err := kvStore.CreateTableName(table, 3)
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	if err := kvStore.Put(table, 1, "one"); err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
-	if err := kvStore.Put(2, "two"); err != nil {
+	if err := kvStore.Put(table, 2, "two"); err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
 
-	// GET
-	assertGet(t, kvStore, 1, "one")
-	assertGet(t, kvStore, 2, "two")
+	assertGet(t, kvStore, table, 1, "one")
+	assertGet(t, kvStore, table, 2, "two")
 
-	// DELETE
-	if err := kvStore.Delete(1); err != nil {
+	if err := kvStore.Delete(table, 1); err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
-	assertNotFound(t, kvStore, 1)
+	assertNotFound(t, kvStore, table, 1)
 
-	// FLUSH and RELOAD
-	if err := kvStore.Flush(); err != nil {
+	if err := kvStore.Flush(table); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
@@ -73,25 +75,28 @@ func TestKVStoreBasicOperations(t *testing.T) {
 	if err := loadedStore.Load(); err != nil {
 		t.Fatalf("Failed to load WAL: %v", err)
 	}
-	assertGet(t, loadedStore, 2, "two")
+	assertGet(t, loadedStore, table, 2, "two")
 }
 
 func TestKVStore(t *testing.T) {
 	kvStore, cleanup := setupTestKVStore(t)
 	defer cleanup()
 
+	table := "kvtable"
+	_ = kvStore.CreateTableName(table, 3)
+
 	t.Run("Empty Database", func(t *testing.T) {
-		assertNotFound(t, kvStore, 100)
+		assertNotFound(t, kvStore, table, 100)
 	})
 
 	t.Run("Overwrite Value", func(t *testing.T) {
-		_ = kvStore.Put(1, "one")
-		_ = kvStore.Put(1, "uno")
-		assertGet(t, kvStore, 1, "uno")
+		_ = kvStore.Put(table, 1, "one")
+		_ = kvStore.Put(table, 1, "uno")
+		assertGet(t, kvStore, table, 1, "uno")
 	})
 
 	t.Run("Delete Non-Existent Key", func(t *testing.T) {
-		err := kvStore.Delete(999)
+		err := kvStore.Delete(table, 999)
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
@@ -101,11 +106,11 @@ func TestKVStore(t *testing.T) {
 		keys := []int{10, 20, 30}
 		values := []string{"ten", "twenty", "thirty"}
 		for i := range keys {
-			_ = kvStore.Put(keys[i], values[i])
+			_ = kvStore.Put(table, keys[i], values[i])
 		}
 		for _, key := range keys {
-			_ = kvStore.Delete(key)
-			assertNotFound(t, kvStore, key)
+			_ = kvStore.Delete(table, key)
+			assertNotFound(t, kvStore, table, key)
 		}
 	})
 }
@@ -138,21 +143,24 @@ func TestPeriodicFlush(t *testing.T) {
 	defer os.Remove(logFile)
 	defer store.Close()
 
+	table := "flush_table"
+	_ = store.CreateTableName(table, 3)
+
 	store.StartPeriodicFlush(1 * time.Second)
-	_ = store.Put(1, "one")
-	_ = store.Put(2, "two")
+	_ = store.Put(table, 1, "one")
+	_ = store.Put(table, 2, "two")
 	time.Sleep(2 * time.Second)
 
 	recoveredStore, _ := kvstore.NewBTreeKVStore(3, diskManager, logFile)
 	defer recoveredStore.Close()
 	_ = recoveredStore.Load()
 
-	assertGet(t, recoveredStore, 1, "one")
-	assertGet(t, recoveredStore, 2, "two")
+	assertGet(t, recoveredStore, table, 1, "one")
+	assertGet(t, recoveredStore, table, 2, "two")
 }
 
-func assertGet(t *testing.T, store *kvstore.BTreeKVStore, key int, expected string) {
-	value, found, err := store.Get(key)
+func assertGet(t *testing.T, store *kvstore.BTreeKVStore, table string, key int, expected string) {
+	value, found, err := store.Get(table, key)
 	if err != nil {
 		t.Fatalf("GET failed: %v", err)
 	}
@@ -161,8 +169,8 @@ func assertGet(t *testing.T, store *kvstore.BTreeKVStore, key int, expected stri
 	}
 }
 
-func assertNotFound(t *testing.T, store *kvstore.BTreeKVStore, key int) {
-	value, found, err := store.Get(key)
+func assertNotFound(t *testing.T, store *kvstore.BTreeKVStore, table string, key int) {
+	value, found, err := store.Get(table, key)
 	if err != nil {
 		t.Fatalf("GET failed: %v", err)
 	}

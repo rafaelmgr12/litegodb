@@ -10,19 +10,16 @@ import (
 )
 
 func setupKVStore(t *testing.T) (*kvstore.BTreeKVStore, func()) {
-	// Setup disk manager
 	diskManager, err := disk.NewFileDiskManager("test_data.db")
 	if err != nil {
 		t.Fatalf("Failed to create DiskManager: %v", err)
 	}
 
-	// Initialize key-value store
 	kvStore, err := kvstore.NewBTreeKVStore(3, diskManager, "test_log.log")
 	if err != nil {
 		t.Fatalf("Failed to create KVStore: %v", err)
 	}
 
-	// Define cleanup function
 	cleanup := func() {
 		kvStore.Close()
 		os.Remove("test_data.db")
@@ -36,26 +33,26 @@ func TestKVStoreIntegration(t *testing.T) {
 	kvStore, cleanup := setupKVStore(t)
 	defer cleanup()
 
-	// Test basic operations
-	testBasicOperations(t, kvStore)
-	// Test crash recovery
-	testCrashRecovery(t)
-	// Test periodic flush
-	testPeriodicFlush(t)
+	table := "integration_table"
+	if err := kvStore.CreateTableName(table, 3); err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	testBasicOperations(t, kvStore, table)
+	testCrashRecovery(t, table)
+	testPeriodicFlush(t, table)
 }
 
-func testBasicOperations(t *testing.T, kvStore *kvstore.BTreeKVStore) {
+func testBasicOperations(t *testing.T, kvStore *kvstore.BTreeKVStore, table string) {
 	t.Run("Basic Operations", func(t *testing.T) {
-		// Test PUT operation
-		if err := kvStore.Put(1, "one"); err != nil {
+		if err := kvStore.Put(table, 1, "one"); err != nil {
 			t.Fatalf("Failed to put key: %v", err)
 		}
-		if err := kvStore.Put(2, "two"); err != nil {
+		if err := kvStore.Put(table, 2, "two"); err != nil {
 			t.Fatalf("Failed to put key: %v", err)
 		}
 
-		// Test GET operation
-		value, found, err := kvStore.Get(1)
+		value, found, err := kvStore.Get(table, 1)
 		if err != nil {
 			t.Fatalf("Error during GET: %v", err)
 		}
@@ -63,7 +60,7 @@ func testBasicOperations(t *testing.T, kvStore *kvstore.BTreeKVStore) {
 			t.Fatalf("Expected value 'one', got '%s'", value)
 		}
 
-		value, found, err = kvStore.Get(2)
+		value, found, err = kvStore.Get(table, 2)
 		if err != nil {
 			t.Fatalf("Error during GET: %v", err)
 		}
@@ -71,11 +68,10 @@ func testBasicOperations(t *testing.T, kvStore *kvstore.BTreeKVStore) {
 			t.Fatalf("Expected value 'two', got '%s'", value)
 		}
 
-		// Test DELETE operation
-		if err := kvStore.Delete(1); err != nil {
+		if err := kvStore.Delete(table, 1); err != nil {
 			t.Fatalf("Failed to delete key: %v", err)
 		}
-		value, found, err = kvStore.Get(1)
+		value, found, err = kvStore.Get(table, 1)
 		if err != nil {
 			t.Fatalf("Error during GET after DELETE: %v", err)
 		}
@@ -85,23 +81,24 @@ func testBasicOperations(t *testing.T, kvStore *kvstore.BTreeKVStore) {
 	})
 }
 
-func testCrashRecovery(t *testing.T) {
+func testCrashRecovery(t *testing.T, table string) {
 	t.Run("Crash Recovery", func(t *testing.T) {
 		kvStore, cleanup := setupKVStore(t)
 		defer cleanup()
 
-		// Insert some key-value pairs
-		if err := kvStore.Put(1, "one"); err != nil {
+		if err := kvStore.CreateTableName(table, 3); err != nil {
+			t.Fatalf("Failed to create table: %v", err)
+		}
+
+		if err := kvStore.Put(table, 1, "one"); err != nil {
 			t.Fatalf("Failed to put key: %v", err)
 		}
-		if err := kvStore.Put(2, "two"); err != nil {
+		if err := kvStore.Put(table, 2, "two"); err != nil {
 			t.Fatalf("Failed to put key: %v", err)
 		}
 
-		// Simulate crash by closing the store without flushing
 		kvStore.Close()
 
-		// Reinitialize the store and load data from the log
 		diskManager, err := disk.NewFileDiskManager("test_data.db")
 		if err != nil {
 			t.Fatalf("Failed to create DiskManager: %v", err)
@@ -117,8 +114,7 @@ func testCrashRecovery(t *testing.T) {
 			t.Fatalf("Failed to load KV store: %v", err)
 		}
 
-		// Verify data is consistent
-		value, found, err := kvStore.Get(1)
+		value, found, err := kvStore.Get(table, 1)
 		if err != nil {
 			t.Fatalf("Error during GET: %v", err)
 		}
@@ -126,7 +122,7 @@ func testCrashRecovery(t *testing.T) {
 			t.Fatalf("Expected value 'one', got '%s'", value)
 		}
 
-		value, found, err = kvStore.Get(2)
+		value, found, err = kvStore.Get(table, 2)
 		if err != nil {
 			t.Fatalf("Error during GET: %v", err)
 		}
@@ -136,26 +132,26 @@ func testCrashRecovery(t *testing.T) {
 	})
 }
 
-func testPeriodicFlush(t *testing.T) {
+func testPeriodicFlush(t *testing.T, table string) {
 	t.Run("Periodic Flush", func(t *testing.T) {
 		kvStore, cleanup := setupKVStore(t)
 		defer cleanup()
 
-		// Start periodic flushing every second
+		if err := kvStore.CreateTableName(table, 3); err != nil {
+			t.Fatalf("Failed to create table: %v", err)
+		}
+
 		kvStore.StartPeriodicFlush(1 * time.Second)
 
-		// Insert some data
-		if err := kvStore.Put(1, "one"); err != nil {
+		if err := kvStore.Put(table, 1, "one"); err != nil {
 			t.Fatalf("Failed to put key: %v", err)
 		}
-		if err := kvStore.Put(2, "two"); err != nil {
+		if err := kvStore.Put(table, 2, "two"); err != nil {
 			t.Fatalf("Failed to put key: %v", err)
 		}
 
-		// Wait for at least one flush to occur
 		time.Sleep(2 * time.Second)
 
-		// Simulate restarting the KVStore
 		diskManager, err := disk.NewFileDiskManager("test_data.db")
 		if err != nil {
 			t.Fatalf("Failed to create DiskManager: %v", err)
@@ -172,8 +168,7 @@ func testPeriodicFlush(t *testing.T) {
 			t.Fatalf("Failed to load recovered KVStore: %v", err)
 		}
 
-		// Verify data is consistent
-		value, found, err := recoveredStore.Get(1)
+		value, found, err := recoveredStore.Get(table, 1)
 		if err != nil {
 			t.Fatalf("Error during GET: %v", err)
 		}
@@ -181,7 +176,7 @@ func testPeriodicFlush(t *testing.T) {
 			t.Fatalf("Expected value 'one', got '%s'", value)
 		}
 
-		value, found, err = recoveredStore.Get(2)
+		value, found, err = recoveredStore.Get(table, 2)
 		if err != nil {
 			t.Fatalf("Error during GET: %v", err)
 		}

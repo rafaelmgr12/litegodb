@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/rafaelmgr12/litegodb/internal/storage/btree"
@@ -12,7 +13,7 @@ import (
 
 // BTreeKVStore represents a key-value store backed by a B-Tree and persistent storage.
 type BTreeKVStore struct {
-	btree       *btree.BTree
+	tables      map[string]*btree.BTree
 	diskManager disk.DiskManager
 	log         *AppendOnlyLog
 }
@@ -24,25 +25,44 @@ func NewBTreeKVStore(degree int, diskManager disk.DiskManager, logFilename strin
 		return nil, err
 	}
 	return &BTreeKVStore{
-		btree:       btree.NewBTree(degree),
+		tables:      make(map[string]*btree.BTree),
 		diskManager: diskManager,
 		log:         log,
 	}, nil
 }
 
+func (kv *BTreeKVStore) CreateTableName(name string, degree int) error {
+	if _, exists := kv.tables[name]; exists {
+		return fmt.Errorf("table %s already exists", name)
+	}
+
+	kv.tables[name] = btree.NewBTree(degree)
+	return nil
+}
+
 // Put inserts or updates a key-value pair in the KVStore.
-func (kv *BTreeKVStore) Put(key int, value string) error {
-	entry := &LogEntry{Operation: "PUT", Key: key, Value: value}
+func (kv *BTreeKVStore) Put(table string, key int, value string) error {
+	bt, exists := kv.tables[table]
+	if !exists {
+		return fmt.Errorf("table %s does not exist", table)
+	}
+	entry := &LogEntry{Operation: "PUT", Key: key, Value: value, Table: table}
 	if err := kv.log.Append(entry); err != nil {
 		return err
 	}
-	kv.btree.Insert(key, value)
-	return kv.Flush()
+
+	bt.Insert(key, value)
+	return kv.Flush(table)
 }
 
 // Get retrieves the value associated with a key.
-func (kv *BTreeKVStore) Get(key int) (string, bool, error) {
-	value, found := kv.btree.Search(key)
+func (kv *BTreeKVStore) Get(table string, key int) (string, bool, error) {
+	bt, exists := kv.tables[table]
+	if !exists {
+		return "", false, fmt.Errorf("table %s does not exist", table)
+	}
+
+	value, found := bt.Search(key)
 	if !found {
 		return "", false, nil
 	}
@@ -50,22 +70,32 @@ func (kv *BTreeKVStore) Get(key int) (string, bool, error) {
 }
 
 // Delete removes a key-value pair from the KVStore.
-func (kv *BTreeKVStore) Delete(key int) error {
-	entry := &LogEntry{Operation: "DELETE", Key: key}
+func (kv *BTreeKVStore) Delete(table string, key int) error {
+	bt, exists := kv.tables[table]
+	if !exists {
+		return fmt.Errorf("table %s does not exists", table)
+	}
+
+	entry := &LogEntry{Operation: "DELETE", Table: table, Key: key}
 	if err := kv.log.Append(entry); err != nil {
 		return err
 	}
-	kv.btree.Delete(key)
-	return kv.Flush()
+	bt.Delete(key)
+	return kv.Flush(table)
 }
 
 // Flush saves the in-memory B-Tree structure to disk.
-func (kv *BTreeKVStore) Flush() error {
+func (kv *BTreeKVStore) Flush(table string) error {
+	bt, exists := kv.tables[table]
+	if !exists {
+		return fmt.Errorf("table %s does not exist", table)
+	}
+
 	rootID := int32(1) // Assign a unique ID to the root node
-	if err := kv.saveMetadata(rootID, kv.btree.Degree()); err != nil {
+	if err := kv.saveMetadata(rootID, bt.Degree(), table); err != nil {
 		return err
 	}
-	return kv.saveNode(kv.btree.Root(), rootID)
+	return kv.saveNode(bt.Root(), rootID, table)
 }
 
 // Load restores the KVStore state by replaying the append-only log.
@@ -78,8 +108,15 @@ func (kv *BTreeKVStore) Load() error {
 	buf := bytes.NewBuffer(metaPage.Data())
 	var rootID int32
 	var degree int32
+	var tableLen int32
 	binary.Read(buf, binary.LittleEndian, &rootID)
 	binary.Read(buf, binary.LittleEndian, &degree)
+	binary.Read(buf, binary.LittleEndian, &tableLen)
+
+	table := make([]byte, tableLen)
+	if _, err := buf.Read(table); err != nil {
+		return err
+	}
 
 	rootPage, err := kv.diskManager.ReadPage(rootID)
 	if err != nil {
@@ -92,8 +129,9 @@ func (kv *BTreeKVStore) Load() error {
 		return err
 	}
 
-	kv.btree = btree.NewBTree(int(degree))
-	kv.btree.SetRoot(root)
+	tableName := string(table)
+	kv.tables[tableName] = btree.NewBTree(int(degree))
+	kv.tables[tableName].SetRoot(root)
 
 	// Replay the log
 	entries, err := kv.log.Replay()
@@ -101,11 +139,18 @@ func (kv *BTreeKVStore) Load() error {
 		return err
 	}
 	for _, entry := range entries {
+		bt, exists := kv.tables[entry.Table]
+
+		if !exists {
+			bt = btree.NewBTree(int(degree))
+			kv.tables[entry.Table] = bt
+		}
+
 		switch entry.Operation {
 		case "PUT":
-			kv.btree.Insert(entry.Key, entry.Value)
+			bt.Insert(entry.Key, entry.Value)
 		case "DELETE":
-			kv.btree.Delete(entry.Key)
+			bt.Delete(entry.Key)
 		}
 	}
 	return nil
@@ -121,7 +166,7 @@ func (kv *BTreeKVStore) GetPageDataByID(pageID int32) ([]byte, error) {
 }
 
 // saveNode recursively saves a B-Tree node and its children to disk.
-func (kv *BTreeKVStore) saveNode(node *btree.Node, pageID int32) error {
+func (kv *BTreeKVStore) saveNode(node *btree.Node, pageID int32, table string) error {
 	page := disk.NewFilePage(pageID)
 	data, err := serializeNode(node)
 	if err != nil {
@@ -133,7 +178,7 @@ func (kv *BTreeKVStore) saveNode(node *btree.Node, pageID int32) error {
 	}
 	for i, child := range node.Children() {
 		childPageID := pageID*10 + int32(i+1)
-		if err := kv.saveNode(child, childPageID); err != nil {
+		if err := kv.saveNode(child, childPageID, table); err != nil {
 			return err
 		}
 	}
@@ -153,17 +198,21 @@ func (kv *BTreeKVStore) StartPeriodicFlush(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	go func() {
 		for range ticker.C {
-			kv.Flush()
+			for table := range kv.tables {
+				kv.Flush(table)
+			}
 		}
 	}()
 }
 
 // saveMetadata saves the metadata (e.g., root ID, degree) to disk.
-func (kv *BTreeKVStore) saveMetadata(rootID int32, degree int) error {
+func (kv *BTreeKVStore) saveMetadata(rootID int32, degree int, table string) error {
 	metaPage := disk.NewFilePage(0)
 	buffer := new(bytes.Buffer)
 	binary.Write(buffer, binary.LittleEndian, rootID)
 	binary.Write(buffer, binary.LittleEndian, int32(degree))
+	binary.Write(buffer, binary.LittleEndian, int32(len(table)))
+	buffer.WriteString(table)
 	metaPage.SetData(buffer.Bytes())
 	return kv.diskManager.WritePage(metaPage)
 }
