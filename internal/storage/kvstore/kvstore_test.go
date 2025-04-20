@@ -159,6 +159,22 @@ func TestPeriodicFlush(t *testing.T) {
 	assertGet(t, recoveredStore, table, 2, "two")
 }
 
+func TestDropTable(t *testing.T) {
+	store, cleanup := setupTestKVStore(t)
+	defer cleanup()
+
+	table := "drop_table"
+	_ = store.CreateTableName(table, 3)
+
+	if err := store.DropTable(table); err != nil {
+		t.Fatalf("Failed to drop table: %v", err)
+	}
+
+	if _, found, _ := store.Get(table, 1); found {
+		t.Fatalf("Expected table %s to be dropped", table)
+	}
+}
+
 func assertGet(t *testing.T, store *kvstore.BTreeKVStore, table string, key int, expected string) {
 	value, found, err := store.Get(table, key)
 	if err != nil {
