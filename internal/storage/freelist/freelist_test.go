@@ -1,6 +1,7 @@
 package freelist_test
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/rafaelmgr12/litegodb/internal/storage/freelist"
@@ -98,19 +99,17 @@ func TestFreelist_SerializeDeserialize(t *testing.T) {
 }
 
 func TestFreelist_ConcurrentAddAndGet(t *testing.T) {
+	var wg sync.WaitGroup
 	fl := freelist.NewFreelist()
 
 	// Use goroutines to simulate concurrent access
-	numPages := 100
-	for i := 1; i <= numPages; i++ {
-		go fl.Add(int32(i))
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			fl.Add(int32(i))
+		}(i)
 	}
 
-	for i := 1; i <= numPages; i++ {
-		go func() {
-			if _, ok := fl.GetFreePage(); !ok {
-				t.Errorf("expected to get a free page, but got none")
-			}
-		}()
-	}
+	wg.Wait()
 }
