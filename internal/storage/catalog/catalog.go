@@ -73,3 +73,20 @@ func (c *Catalog) DropTable(name string) error {
 	delete(c.tables, name)
 	return nil
 }
+
+// All returns a copy of the internal table metadata map.
+// This prevents external code from modifying the internal catalog state.
+func (c *Catalog) All() map[string]*TableMetadata {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	copy := make(map[string]*TableMetadata, len(c.tables))
+	for name, meta := range c.tables {
+		copy[name] = &TableMetadata{
+			Name:   meta.Name,
+			RootID: meta.RootID,
+			Degree: meta.Degree,
+		}
+	}
+	return copy
+}

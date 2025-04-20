@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rafaelmgr12/litegodb/internal/storage/btree"
+	"github.com/rafaelmgr12/litegodb/internal/storage/catalog"
 	"github.com/rafaelmgr12/litegodb/internal/storage/disk"
 )
 
@@ -16,6 +17,7 @@ type BTreeKVStore struct {
 	tables      map[string]*btree.BTree
 	diskManager disk.DiskManager
 	log         *AppendOnlyLog
+	catalog     *catalog.Catalog
 }
 
 // NewBTreeKVStore initializes a new KVStore with a B-Tree, DiskManager, and AppendOnlyLog.
@@ -24,27 +26,65 @@ func NewBTreeKVStore(degree int, diskManager disk.DiskManager, logFilename strin
 	if err != nil {
 		return nil, err
 	}
+
+	cat := catalog.NewCatalog(diskManager)
+	_ = cat.Load()
+
 	return &BTreeKVStore{
 		tables:      make(map[string]*btree.BTree),
 		diskManager: diskManager,
 		log:         log,
+		catalog:     cat,
 	}, nil
 }
 
 func (kv *BTreeKVStore) CreateTableName(name string, degree int) error {
-	if _, exists := kv.tables[name]; exists {
+	if _, exists := kv.catalog.Get(name); exists {
 		return fmt.Errorf("table %s already exists", name)
 	}
 
-	kv.tables[name] = btree.NewBTree(degree)
-	return nil
+	bt := btree.NewBTree(degree)
+	kv.tables[name] = bt
+
+	page, err := kv.diskManager.AllocatePage()
+	if err != nil {
+		return err
+	}
+	rootID := page.ID()
+
+	err = kv.catalog.CreateTable(name, rootID, int32(degree))
+	if err != nil {
+		return err
+	}
+
+	return kv.catalog.Save()
+
 }
 
 // Put inserts or updates a key-value pair in the KVStore.
 func (kv *BTreeKVStore) Put(table string, key int, value string) error {
 	bt, exists := kv.tables[table]
 	if !exists {
-		return fmt.Errorf("table %s does not exist", table)
+
+		meta, ok := kv.catalog.Get(table)
+		if !ok {
+			return fmt.Errorf("table %s does not exist", table)
+		}
+
+		rootPage, err := kv.diskManager.ReadPage(meta.RootID)
+		if err != nil {
+			return err
+		}
+
+		root, err := deserializeNode(rootPage.Data(), kv.GetPageDataByID)
+		if err != nil {
+			return err
+		}
+
+		bt = btree.NewBTree(int(meta.Degree))
+		bt.SetRoot(root)
+		kv.tables[table] = bt
+
 	}
 	entry := &LogEntry{Operation: "PUT", Key: key, Value: value, Table: table}
 	if err := kv.log.Append(entry); err != nil {
@@ -59,7 +99,24 @@ func (kv *BTreeKVStore) Put(table string, key int, value string) error {
 func (kv *BTreeKVStore) Get(table string, key int) (string, bool, error) {
 	bt, exists := kv.tables[table]
 	if !exists {
-		return "", false, fmt.Errorf("table %s does not exist", table)
+		meta, ok := kv.catalog.Get(table)
+		if !ok {
+			return "", false, fmt.Errorf("table %s does not exists", table)
+		}
+
+		rootPage, err := kv.diskManager.ReadPage(meta.RootID)
+		if err != nil {
+			return "", false, err
+		}
+
+		root, err := deserializeNode(rootPage.Data(), kv.GetPageDataByID)
+		if err != nil {
+			return "", false, err
+		}
+
+		bt = btree.NewBTree(int(meta.Degree))
+		bt.SetRoot(root)
+		kv.tables[table] = bt
 	}
 
 	value, found := bt.Search(key)
@@ -73,7 +130,23 @@ func (kv *BTreeKVStore) Get(table string, key int) (string, bool, error) {
 func (kv *BTreeKVStore) Delete(table string, key int) error {
 	bt, exists := kv.tables[table]
 	if !exists {
-		return fmt.Errorf("table %s does not exists", table)
+		meta, ok := kv.catalog.Get(table)
+		if !ok {
+			return fmt.Errorf("table %s does not exist", table)
+		}
+
+		rootPage, err := kv.diskManager.ReadPage(meta.RootID)
+		if err != nil {
+			return err
+		}
+		root, err := deserializeNode(rootPage.Data(), kv.GetPageDataByID)
+		if err != nil {
+			return err
+		}
+
+		bt = btree.NewBTree(int(meta.Degree))
+		bt.SetRoot(root)
+		kv.tables[table] = bt
 	}
 
 	entry := &LogEntry{Operation: "DELETE", Table: table, Key: key}
@@ -91,58 +164,54 @@ func (kv *BTreeKVStore) Flush(table string) error {
 		return fmt.Errorf("table %s does not exist", table)
 	}
 
-	rootID := int32(1) // Assign a unique ID to the root node
-	if err := kv.saveMetadata(rootID, bt.Degree(), table); err != nil {
+	meta, ok := kv.catalog.Get(table)
+	if !ok {
+		return fmt.Errorf("table %s not registered on catalog", table)
+	}
+
+	err := kv.saveNode(bt.Root(), meta.RootID, table)
+	if err != nil {
 		return err
 	}
-	return kv.saveNode(bt.Root(), rootID, table)
+
+	return kv.catalog.Save()
 }
 
 // Load restores the KVStore state by replaying the append-only log.
 func (kv *BTreeKVStore) Load() error {
-	metaPage, err := kv.diskManager.ReadPage(0)
-	if err != nil {
+	if err := kv.catalog.Load(); err != nil {
 		return err
 	}
 
-	buf := bytes.NewBuffer(metaPage.Data())
-	var rootID int32
-	var degree int32
-	var tableLen int32
-	binary.Read(buf, binary.LittleEndian, &rootID)
-	binary.Read(buf, binary.LittleEndian, &degree)
-	binary.Read(buf, binary.LittleEndian, &tableLen)
+	for name, meta := range kv.catalog.All() {
+		rootPage, err := kv.diskManager.ReadPage(meta.RootID)
+		if err != nil {
+			return err
+		}
 
-	table := make([]byte, tableLen)
-	if _, err := buf.Read(table); err != nil {
-		return err
+		root, err := deserializeNode(rootPage.Data(), kv.GetPageDataByID)
+		if err != nil {
+			return err
+		}
+
+		bt := btree.NewBTree(int(meta.Degree))
+		bt.SetRoot(root)
+		kv.tables[name] = bt
 	}
 
-	rootPage, err := kv.diskManager.ReadPage(rootID)
-	if err != nil {
-		return err
-	}
-
-	// Pass kv.GetPageDataByID as the fetch function
-	root, err := deserializeNode(rootPage.Data(), kv.GetPageDataByID)
-	if err != nil {
-		return err
-	}
-
-	tableName := string(table)
-	kv.tables[tableName] = btree.NewBTree(int(degree))
-	kv.tables[tableName].SetRoot(root)
-
-	// Replay the log
 	entries, err := kv.log.Replay()
 	if err != nil {
 		return err
 	}
-	for _, entry := range entries {
-		bt, exists := kv.tables[entry.Table]
 
-		if !exists {
-			bt = btree.NewBTree(int(degree))
+	for _, entry := range entries {
+		bt, ok := kv.tables[entry.Table]
+		if !ok {
+			meta, ok := kv.catalog.Get(entry.Table)
+			if !ok {
+				continue
+			}
+			bt = btree.NewBTree(int(meta.Degree))
 			kv.tables[entry.Table] = bt
 		}
 
@@ -153,7 +222,9 @@ func (kv *BTreeKVStore) Load() error {
 			bt.Delete(entry.Key)
 		}
 	}
+
 	return nil
+
 }
 
 // GetPageDataByID retrieves the raw page data for a given page ID.
@@ -203,6 +274,20 @@ func (kv *BTreeKVStore) StartPeriodicFlush(interval time.Duration) {
 			}
 		}
 	}()
+}
+
+// DropTable removes a table from the KVStore and the catalog.
+func (kv *BTreeKVStore) DropTable(name string) error {
+	if _, exists := kv.tables[name]; !exists {
+		return fmt.Errorf("table %s does not exist", name)
+	}
+
+	if err := kv.catalog.DropTable(name); err != nil {
+		return err
+	}
+
+	delete(kv.tables, name)
+	return nil
 }
 
 // saveMetadata saves the metadata (e.g., root ID, degree) to disk.
