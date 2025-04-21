@@ -1,6 +1,8 @@
 package btree
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"sync"
 )
@@ -257,6 +259,139 @@ func (t *BTree) Delete(key int) {
 	defer t.mutex.Unlock()
 
 	t.delete(t.root, key)
+}
+
+// Serialize serializes the B-Tree to a byte slice.
+func (t *BTree) Serialize() ([]byte, error) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	return t.serializeNode(t.root)
+
+}
+
+// Deserialize deserializes a byte slice to reconstruct the B-Tree.
+func Deserialize(data []byte, fetchPage func(int32) ([]byte, error)) (*BTree, error) {
+	buffer := bytes.NewReader(data)
+
+	var id int32
+	var isLeaf bool
+	var degree int32
+	var numKeys int32
+
+	if err := binary.Read(buffer, binary.LittleEndian, &id); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buffer, binary.LittleEndian, &isLeaf); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buffer, binary.LittleEndian, &degree); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(buffer, binary.LittleEndian, &numKeys); err != nil {
+		return nil, err
+	}
+
+	keys := make([]int, numKeys)
+	for i := 0; i < int(numKeys); i++ {
+		var key int32
+		if err := binary.Read(buffer, binary.LittleEndian, &key); err != nil {
+			return nil, err
+		}
+		keys[i] = int(key)
+	}
+
+	values := make([]interface{}, numKeys)
+	for i := 0; i < int(numKeys); i++ {
+		var valLen int32
+		if err := binary.Read(buffer, binary.LittleEndian, &valLen); err != nil {
+			return nil, err
+		}
+		str := make([]byte, valLen)
+		if _, err := buffer.Read(str); err != nil {
+			return nil, err
+		}
+		values[i] = string(str)
+	}
+
+	var numChildren int32
+	if err := binary.Read(buffer, binary.LittleEndian, &numChildren); err != nil {
+		return nil, err
+	}
+
+	children := make([]*Node, 0, numChildren)
+	for i := 0; i < int(numChildren); i++ {
+		var childID int32
+		if err := binary.Read(buffer, binary.LittleEndian, &childID); err != nil {
+			return nil, err
+		}
+
+		childData, err := fetchPage(childID)
+		if err != nil {
+			return nil, err
+		}
+
+		childTree, err := Deserialize(childData, fetchPage)
+		if err != nil {
+			return nil, err
+		}
+		children = append(children, childTree.root)
+	}
+
+	tree := NewBTree(int(degree))
+	tree.root = NewNodeComplete(id, keys, values, children, isLeaf, int(degree))
+	return tree, nil
+}
+
+func (t *BTree) serializeNode(node *Node) ([]byte, error) {
+	buffer := new(bytes.Buffer)
+
+	if err := binary.Write(buffer, binary.LittleEndian, node.id); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Write(buffer, binary.LittleEndian, node.isLeaf); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Write(buffer, binary.LittleEndian, int32(t.degree)); err != nil {
+		return nil, err
+	}
+
+	numKeys := int32(len(node.keys))
+	if err := binary.Write(buffer, binary.LittleEndian, numKeys); err != nil {
+		return nil, err
+	}
+	for _, key := range node.keys {
+		if err := binary.Write(buffer, binary.LittleEndian, int32(key)); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, value := range node.values {
+		str, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("value is not string")
+		}
+		if err := binary.Write(buffer, binary.LittleEndian, int32(len(str))); err != nil {
+			return nil, err
+		}
+		if _, err := buffer.WriteString(str); err != nil {
+			return nil, err
+		}
+	}
+
+	numChildren := int32(len(node.children))
+	if err := binary.Write(buffer, binary.LittleEndian, numChildren); err != nil {
+		return nil, err
+	}
+	for _, child := range node.children {
+		if err := binary.Write(buffer, binary.LittleEndian, child.id); err != nil {
+			return nil, err
+		}
+	}
+
+	return buffer.Bytes(), nil
 }
 
 func (t *BTree) delete(node *Node, key int) error {

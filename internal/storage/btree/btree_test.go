@@ -1,6 +1,7 @@
 package btree_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -209,6 +210,51 @@ func TestBTreeBoundaries(t *testing.T) {
 		value, found := btree.Search(tc.key)
 		if !found {
 			t.Fatalf("boundary key %d not found", tc.key)
+		}
+		if value != tc.value {
+			t.Fatalf("expected value %s for key %d, got %v", tc.value, tc.key, value)
+		}
+	}
+}
+
+func TestBtreeSerialize(t *testing.T) {
+	bt := btree.NewBTree(2)
+
+	testCases := []struct {
+		key   int
+		value string
+	}{
+		{10, "ten"},
+		{20, "twenty"},
+		{5, "five"},
+	}
+
+	for _, tc := range testCases {
+		bt.Insert(tc.key, tc.value)
+	}
+
+	// Serialize the tree
+	data, err := bt.Serialize()
+	if err != nil {
+		t.Fatalf("failed to serialize B-tree: %v", err)
+	}
+
+	// Dummy fetchPage (not needed for single node)
+	dummyFetch := func(id int32) ([]byte, error) {
+		return nil, fmt.Errorf("unexpected fetchPage call")
+	}
+
+	// Deserialize
+	deserialized, err := btree.Deserialize(data, dummyFetch)
+	if err != nil {
+		t.Fatalf("failed to deserialize B-tree: %v", err)
+	}
+
+	// Assert all keys exist in the new tree
+	for _, tc := range testCases {
+		value, found := deserialized.Search(tc.key)
+		if !found {
+			t.Fatalf("key %d not found after deserialization", tc.key)
 		}
 		if value != tc.value {
 			t.Fatalf("expected value %s for key %d, got %v", tc.value, tc.key, value)
