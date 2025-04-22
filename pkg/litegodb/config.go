@@ -18,6 +18,7 @@ type Config struct {
 	DBFile     string        `mapstructure:"db_file"`     // Path to the database file.
 	LogFile    string        `mapstructure:"log_file"`    // Path to the write-ahead log file.
 	FlushEvery time.Duration `mapstructure:"flush_every"` // Interval for periodic flushes.
+	Server     ServerConfig  `mapstructure:"server"`      // Server configuration.
 }
 
 type ServerConfig struct {
