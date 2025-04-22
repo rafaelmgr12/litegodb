@@ -240,19 +240,6 @@ func (kv *BTreeKVStore) GetPageDataByID(pageID int32) ([]byte, error) {
 	return page.Data(), nil
 }
 
-// saveNode recursively saves a B-Tree node and its children to disk.
-func (kv *BTreeKVStore) saveNode(bt *btree.BTree, pageID int32) error {
-	page := disk.NewFilePage(pageID)
-
-	data, err := bt.Serialize()
-	if err != nil {
-		return err
-	}
-
-	page.SetData(data)
-	return kv.diskManager.WritePage(page)
-}
-
 // Close releases resources held by the KVStore.
 func (kv *BTreeKVStore) Close() error {
 	if err := kv.log.Close(); err != nil {
@@ -285,6 +272,12 @@ func (kv *BTreeKVStore) DropTable(name string) error {
 
 	delete(kv.tables, name)
 	return nil
+}
+
+// IsTableExists checks if a table exists in the KVStore.
+func (kv *BTreeKVStore) IsTableExists(name string) bool {
+	_, exists := kv.catalog.Get(name)
+	return exists
 }
 
 func SerializeNodeForTest(bt *btree.BTree) ([]byte, error) {
