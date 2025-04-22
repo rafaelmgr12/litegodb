@@ -1,3 +1,5 @@
+// Package litegodb provides configuration management and initialization
+// for the lightweight key-value database.
 package litegodb
 
 import (
@@ -9,13 +11,17 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Config represents the configuration for the database.
+// It includes parameters for the B-Tree degree, file paths, and flush interval.
 type Config struct {
-	Degree     int           `mapstructure:"degree"`
-	DBFile     string        `mapstructure:"db_file"`
-	LogFile    string        `mapstructure:"log_file"`
-	FlushEvery time.Duration `mapstructure:"flush_every"`
+	Degree     int           `mapstructure:"degree"`      // Degree of the B-Tree.
+	DBFile     string        `mapstructure:"db_file"`     // Path to the database file.
+	LogFile    string        `mapstructure:"log_file"`    // Path to the write-ahead log file.
+	FlushEvery time.Duration `mapstructure:"flush_every"` // Interval for periodic flushes.
 }
 
+// Open initializes and returns a new database instance based on the provided configuration file.
+// It sets up the disk manager, B-Tree key-value store, and periodic flush mechanism.
 func Open(configPath string) (DB, error) {
 	cfg, err := loadConfig(configPath)
 	if err != nil {
@@ -37,17 +43,20 @@ func Open(configPath string) (DB, error) {
 	return &btreeAdapter{kv: store}, nil
 }
 
+// loadConfig reads and parses the configuration file from the specified path.
+// If the file is not found, it uses default values.
 func loadConfig(path string) (*Config, error) {
 	viper.SetConfigFile(path)
 	viper.SetConfigType("yaml")
 
+	// Set default values
 	viper.SetDefault("degree", 2)
 	viper.SetDefault("db_file", "data.db")
 	viper.SetDefault("log_file", "wal.log")
 	viper.SetDefault("flush_every", "10s")
 
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Println("⚠️ Config file não encontrado, usando valores padrão.")
+		fmt.Println("⚠️ Config file not found, using default values.")
 	}
 
 	var cfg Config
