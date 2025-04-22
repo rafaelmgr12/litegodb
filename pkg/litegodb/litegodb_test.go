@@ -26,7 +26,7 @@ flush_every: 1s
 `), 0644)
 	assert.NoError(t, err)
 
-	db, err := litegodb.Open(configFile)
+	db, _, err := litegodb.Open(configFile)
 	assert.NoError(t, err)
 
 	teardown := func() {
@@ -96,7 +96,7 @@ func TestLoad(t *testing.T) {
 	_ = db.Close()
 
 	// Reload database from disk
-	db2, err := litegodb.Open("test-config.yaml")
+	db2, _, err := litegodb.Open("test-config.yaml")
 	assert.NoError(t, err)
 	defer teardown()
 

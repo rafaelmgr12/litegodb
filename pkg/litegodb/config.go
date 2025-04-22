@@ -20,27 +20,33 @@ type Config struct {
 	FlushEvery time.Duration `mapstructure:"flush_every"` // Interval for periodic flushes.
 }
 
+type ServerConfig struct {
+	Port       int    `mapstructure:"port"`
+	EnableCORS bool   `mapstructure:"enable_cors"`
+	AuthToken  string `mapstructure:"auth_token"`
+}
+
 // Open initializes and returns a new database instance based on the provided configuration file.
 // It sets up the disk manager, B-Tree key-value store, and periodic flush mechanism.
-func Open(configPath string) (DB, error) {
+func Open(configPath string) (DB, *Config, error) {
 	cfg, err := loadConfig(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
 	dm, err := disk.NewFileDiskManager(cfg.DBFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create disk manager: %w", err)
+		return nil, nil, fmt.Errorf("failed to create disk manager: %w", err)
 	}
 
 	store, err := kvstore.NewBTreeKVStore(cfg.Degree, dm, cfg.LogFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create store: %w", err)
+		return nil, nil, fmt.Errorf("failed to create store: %w", err)
 	}
 
 	store.StartPeriodicFlush(cfg.FlushEvery)
 
-	return &btreeAdapter{kv: store}, nil
+	return &btreeAdapter{kv: store}, cfg, nil
 }
 
 // loadConfig reads and parses the configuration file from the specified path.
@@ -49,14 +55,19 @@ func loadConfig(path string) (*Config, error) {
 	viper.SetConfigFile(path)
 	viper.SetConfigType("yaml")
 
-	// Set default values
+	// Default DB settings
 	viper.SetDefault("degree", 2)
 	viper.SetDefault("db_file", "data.db")
 	viper.SetDefault("log_file", "wal.log")
 	viper.SetDefault("flush_every", "10s")
 
+	// Default Server settings
+	viper.SetDefault("server.port", 8080)
+	viper.SetDefault("server.enable_cors", false)
+	viper.SetDefault("server.auth_token", "")
+
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Println("⚠️ Config file not found, using default values.")
+		fmt.Println("⚠️ Config file not found, using default values")
 	}
 
 	var cfg Config
