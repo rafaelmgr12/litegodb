@@ -1,8 +1,10 @@
 package kvstore_test
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -207,6 +209,57 @@ func TestDropTable(t *testing.T) {
 
 	if _, found, _ := store.Get(table, 1); found {
 		t.Fatalf("Expected table %s to be dropped", table)
+	}
+}
+
+func TestConcurrentPutAndFlush(t *testing.T) {
+	tree := btree.NewBTree(3)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			tree.Insert(i, fmt.Sprintf("value%d", i))
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10; i++ {
+			_, err := tree.Serialize()
+			if err != nil {
+				t.Errorf("Flush failed: %v", err)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	wg.Wait()
+
+}
+
+func TestSerializeDeterministicOutput(t *testing.T) {
+	tree := btree.NewBTree(3)
+
+	// Dados consistentes
+	tree.Insert(10, "ten")
+	tree.Insert(20, "twenty")
+	tree.Insert(30, "thirty")
+
+	data1, err := tree.Serialize()
+	if err != nil {
+		t.Fatalf("First serialization failed: %v", err)
+	}
+
+	data2, err := tree.Serialize()
+	if err != nil {
+		t.Fatalf("Second serialization failed: %v", err)
+	}
+
+	if !bytes.Equal(data1, data2) {
+		t.Errorf("Serialization output is not deterministic")
 	}
 }
 
