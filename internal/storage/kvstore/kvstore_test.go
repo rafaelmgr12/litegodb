@@ -1,8 +1,10 @@
 package kvstore_test
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,23 +117,58 @@ func TestKVStore(t *testing.T) {
 	})
 }
 
-func TestBTreeNodeSerialization(t *testing.T) {
-	mockData := make(map[int32][]byte)
-	fetchPageData := func(pageID int32) ([]byte, error) {
-		data, ok := mockData[pageID]
+func TestBTreeSerializationDeserialization(t *testing.T) {
+	original := btree.NewBTree(3)
+
+	testCases := []struct {
+		key   int
+		value string
+	}{
+		{10, "ten"},
+		{20, "twenty"},
+		{5, "five"},
+	}
+
+	for _, tc := range testCases {
+		original.Insert(tc.key, tc.value)
+	}
+
+	mockDisk := make(map[int32][]byte)
+
+	var save func(node *btree.Node)
+	save = func(node *btree.Node) {
+		data, err := original.Serialize()
+		if err != nil {
+			t.Fatalf("failed to serialize node: %v", err)
+		}
+		mockDisk[node.ID()] = data
+		for _, child := range node.Children() {
+			save(child)
+		}
+	}
+	save(original.Root())
+
+	rootID := original.Root().ID()
+	rootData := mockDisk[rootID]
+
+	fetch := func(pageID int32) ([]byte, error) {
+		data, ok := mockDisk[pageID]
 		if !ok {
-			return nil, fmt.Errorf("page not found: %d", pageID)
+			return nil, fmt.Errorf("page %d not found", pageID)
 		}
 		return data, nil
 	}
 
-	node := btree.NewNodeComplete(1, []int{10, 20, 30}, []interface{}{"ten", "twenty", "thirty"}, nil, true, 3)
-	serialized, _ := kvstore.SerializeNodeForTest(node)
-	mockData[1] = serialized
+	recovered, err := btree.Deserialize(rootData, fetch)
+	if err != nil {
+		t.Fatalf("failed to deserialize: %v", err)
+	}
 
-	deserialized, _ := kvstore.DeserializeNodeForTest(serialized, fetchPageData)
-	if !nodesAreEqual(node, deserialized) {
-		t.Errorf("Node mismatch")
+	for _, tc := range testCases {
+		val, found := recovered.Search(tc.key)
+		if !found || val != tc.value {
+			t.Errorf("expected %q for key %d, got %v", tc.value, tc.key, val)
+		}
 	}
 }
 
@@ -175,6 +212,57 @@ func TestDropTable(t *testing.T) {
 	}
 }
 
+func TestConcurrentPutAndFlush(t *testing.T) {
+	tree := btree.NewBTree(3)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			tree.Insert(i, fmt.Sprintf("value%d", i))
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10; i++ {
+			_, err := tree.Serialize()
+			if err != nil {
+				t.Errorf("Flush failed: %v", err)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	wg.Wait()
+
+}
+
+func TestSerializeDeterministicOutput(t *testing.T) {
+	tree := btree.NewBTree(3)
+
+	// Dados consistentes
+	tree.Insert(10, "ten")
+	tree.Insert(20, "twenty")
+	tree.Insert(30, "thirty")
+
+	data1, err := tree.Serialize()
+	if err != nil {
+		t.Fatalf("First serialization failed: %v", err)
+	}
+
+	data2, err := tree.Serialize()
+	if err != nil {
+		t.Fatalf("Second serialization failed: %v", err)
+	}
+
+	if !bytes.Equal(data1, data2) {
+		t.Errorf("Serialization output is not deterministic")
+	}
+}
+
 func assertGet(t *testing.T, store *kvstore.BTreeKVStore, table string, key int, expected string) {
 	value, found, err := store.Get(table, key)
 	if err != nil {
@@ -193,21 +281,4 @@ func assertNotFound(t *testing.T, store *kvstore.BTreeKVStore, table string, key
 	if found {
 		t.Fatalf("Expected key %d to be missing, found value '%s'", key, value)
 	}
-}
-
-func nodesAreEqual(a, b *btree.Node) bool {
-	if a.ID() != b.ID() || a.IsLeaf() != b.IsLeaf() || len(a.Keys()) != len(b.Keys()) {
-		return false
-	}
-	for i, key := range a.Keys() {
-		if key != b.Keys()[i] {
-			return false
-		}
-	}
-	for i, val := range a.Values() {
-		if val != b.Values()[i] {
-			return false
-		}
-	}
-	return true
 }
