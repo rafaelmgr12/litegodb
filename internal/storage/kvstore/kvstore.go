@@ -2,6 +2,7 @@ package kvstore
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/rafaelmgr12/litegodb/internal/storage/btree"
@@ -12,6 +13,7 @@ import (
 // BTreeKVStore represents a key-value store backed by a B-Tree and persistent storage.
 type BTreeKVStore struct {
 	tables      map[string]*btree.BTree
+	tablesMu    sync.RWMutex
 	diskManager disk.DiskManager
 	log         *AppendOnlyLog
 	catalog     *catalog.Catalog
@@ -41,7 +43,10 @@ func (kv *BTreeKVStore) CreateTableName(name string, degree int) error {
 	}
 
 	bt := btree.NewBTree(degree)
+
+	kv.tablesMu.Lock()
 	kv.tables[name] = bt
+	defer kv.tablesMu.Unlock()
 
 	page, err := kv.diskManager.AllocatePage()
 	if err != nil {
@@ -60,7 +65,10 @@ func (kv *BTreeKVStore) CreateTableName(name string, degree int) error {
 
 // Put inserts or updates a key-value pair in the KVStore.
 func (kv *BTreeKVStore) Put(table string, key int, value string) error {
+	kv.tablesMu.RLock()
 	bt, exists := kv.tables[table]
+	kv.tablesMu.RUnlock()
+
 	if !exists {
 
 		meta, ok := kv.catalog.Get(table)
@@ -78,7 +86,9 @@ func (kv *BTreeKVStore) Put(table string, key int, value string) error {
 			return err
 		}
 
+		kv.tablesMu.Lock()
 		kv.tables[table] = bt
+		kv.tablesMu.Unlock()
 
 	}
 	entry := &LogEntry{Operation: "PUT", Key: key, Value: value, Table: table}
@@ -92,7 +102,10 @@ func (kv *BTreeKVStore) Put(table string, key int, value string) error {
 
 // Get retrieves the value associated with a key.
 func (kv *BTreeKVStore) Get(table string, key int) (string, bool, error) {
+	kv.tablesMu.RLock()
 	bt, exists := kv.tables[table]
+	kv.tablesMu.RUnlock()
+
 	if !exists {
 		meta, ok := kv.catalog.Get(table)
 		if !ok {
@@ -109,7 +122,9 @@ func (kv *BTreeKVStore) Get(table string, key int) (string, bool, error) {
 			return "", false, err
 		}
 
+		kv.tablesMu.Lock()
 		kv.tables[table] = bt
+		kv.tablesMu.Unlock()
 	}
 
 	value, found := bt.Search(key)
@@ -121,7 +136,10 @@ func (kv *BTreeKVStore) Get(table string, key int) (string, bool, error) {
 
 // Delete removes a key-value pair from the KVStore.
 func (kv *BTreeKVStore) Delete(table string, key int) error {
+	kv.tablesMu.RLock()
 	bt, exists := kv.tables[table]
+	kv.tablesMu.RUnlock()
+
 	if !exists {
 		meta, ok := kv.catalog.Get(table)
 		if !ok {
@@ -136,7 +154,10 @@ func (kv *BTreeKVStore) Delete(table string, key int) error {
 		if err != nil {
 			return err
 		}
+
+		kv.tablesMu.Lock()
 		kv.tables[table] = bt
+		kv.tablesMu.Unlock()
 	}
 
 	entry := &LogEntry{Operation: "DELETE", Table: table, Key: key}
@@ -149,7 +170,10 @@ func (kv *BTreeKVStore) Delete(table string, key int) error {
 
 // Flush saves the in-memory B-Tree structure to disk.
 func (kv *BTreeKVStore) Flush(table string) error {
+	kv.tablesMu.RLock()
 	bt, exists := kv.tables[table]
+	kv.tablesMu.RUnlock()
+
 	if !exists {
 		return fmt.Errorf("table %s does not exist", table)
 	}
@@ -189,8 +213,9 @@ func (kv *BTreeKVStore) Load() error {
 		if err != nil {
 			return err
 		}
-
+		kv.tablesMu.Lock()
 		kv.tables[name] = bt
+		kv.tablesMu.Unlock()
 	}
 
 	entries, err := kv.log.Replay()
@@ -199,7 +224,11 @@ func (kv *BTreeKVStore) Load() error {
 	}
 
 	for _, entry := range entries {
+
+		kv.tablesMu.RLock()
 		bt, ok := kv.tables[entry.Table]
+		kv.tablesMu.RUnlock()
+
 		if !ok {
 			meta, ok := kv.catalog.Get(entry.Table)
 			if !ok {
@@ -216,7 +245,9 @@ func (kv *BTreeKVStore) Load() error {
 				return err
 			}
 
+			kv.tablesMu.Lock()
 			kv.tables[entry.Table] = bt
+			kv.tablesMu.Unlock()
 		}
 
 		switch entry.Operation {
@@ -240,19 +271,6 @@ func (kv *BTreeKVStore) GetPageDataByID(pageID int32) ([]byte, error) {
 	return page.Data(), nil
 }
 
-// saveNode recursively saves a B-Tree node and its children to disk.
-func (kv *BTreeKVStore) saveNode(bt *btree.BTree, pageID int32) error {
-	page := disk.NewFilePage(pageID)
-
-	data, err := bt.Serialize()
-	if err != nil {
-		return err
-	}
-
-	page.SetData(data)
-	return kv.diskManager.WritePage(page)
-}
-
 // Close releases resources held by the KVStore.
 func (kv *BTreeKVStore) Close() error {
 	if err := kv.log.Close(); err != nil {
@@ -263,18 +281,24 @@ func (kv *BTreeKVStore) Close() error {
 
 // StartPeriodicFlush periodically saves the B-Tree to disk at the specified interval.
 func (kv *BTreeKVStore) StartPeriodicFlush(interval time.Duration) {
+
 	ticker := time.NewTicker(interval)
 	go func() {
 		for range ticker.C {
+			kv.tablesMu.RLock()
 			for table := range kv.tables {
 				kv.Flush(table)
 			}
+			kv.tablesMu.RUnlock()
 		}
 	}()
 }
 
 // DropTable removes a table from the KVStore and the catalog.
 func (kv *BTreeKVStore) DropTable(name string) error {
+	kv.tablesMu.Lock()
+	defer kv.tablesMu.Unlock()
+
 	if _, exists := kv.tables[name]; !exists {
 		return fmt.Errorf("table %s does not exist", name)
 	}
@@ -285,6 +309,12 @@ func (kv *BTreeKVStore) DropTable(name string) error {
 
 	delete(kv.tables, name)
 	return nil
+}
+
+// IsTableExists checks if a table exists in the KVStore.
+func (kv *BTreeKVStore) IsTableExists(name string) bool {
+	_, exists := kv.catalog.Get(name)
+	return exists
 }
 
 func SerializeNodeForTest(bt *btree.BTree) ([]byte, error) {
