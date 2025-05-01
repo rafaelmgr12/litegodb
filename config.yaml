@@ -1,0 +1,10 @@
+server:
+  port: 8080
+  enable_cors: true
+  auth_token: ""
+
+storage:
+  degree: 3
+  db_file: "data/database.db"
+  log_file: "data/writeahead.log"
+  flush_every: "2s"
