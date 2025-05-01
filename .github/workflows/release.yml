@@ -1,0 +1,50 @@
+name: Release LiteGoDB
+
+on:
+  push:
+    tags:
+      - 'v*.*.*' # Only trigger for version tags like v0.0.1
+
+jobs:
+  build-and-release:
+    name: Build and Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.21
+
+      - name: Run Tests
+        run: go test ./...
+
+      - name: Build CLI
+        run: |
+          mkdir dist
+          go build -o dist/litegodb cmd/server/main.go
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            🚀 LiteGoDB ${{ github.ref_name }} is out!
+
+            - B-Tree + WAL engine
+            - SQL parser (`INSERT`, `SELECT`, `DELETE`)
+            - REST and WebSocket APIs
+            - Docker-ready
+            - CLI client (`litegodbc`)
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Binary
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/litegodb
