@@ -29,7 +29,6 @@ func ParseAndExecute(query string, db litegodb.DB) (interface{}, error) {
 
 func handleInsert(stmt *sqlparser.Insert, db litegodb.DB) (interface{}, error) {
 	table := stmt.Table.Name.String()
-	columns := stmt.Columns
 	rows := stmt.Rows.(sqlparser.Values)
 
 	if len(rows) != 1 {
@@ -41,33 +40,48 @@ func handleInsert(stmt *sqlparser.Insert, db litegodb.DB) (interface{}, error) {
 	var key int
 	var value string
 
-	for i, col := range columns {
-		switch col.String() {
-		case "key":
-			keyExpr := vals[i]
-			keyLiteral, ok := keyExpr.(*sqlparser.SQLVal)
-			if !ok {
-				return nil, fmt.Errorf("invalid key value")
+	if len(stmt.Columns) == 0 {
+		if len(vals) != 2 {
+			return nil, fmt.Errorf("expected 2 values (key, value)")
+		}
+		keyExpr, ok1 := vals[0].(*sqlparser.SQLVal)
+		valExpr, ok2 := vals[1].(*sqlparser.SQLVal)
+		if !ok1 || !ok2 {
+			return nil, fmt.Errorf("invalid values")
+		}
+
+		keyParsed, err := strconv.Atoi(string(keyExpr.Val))
+		if err != nil {
+			return nil, fmt.Errorf("invalid key value")
+		}
+		key = keyParsed
+		value = string(valExpr.Val)
+	} else {
+		for i, col := range stmt.Columns {
+			switch col.String() {
+			case "key":
+				keyExpr, ok := vals[i].(*sqlparser.SQLVal)
+				if !ok {
+					return nil, fmt.Errorf("invalid key expression")
+				}
+				k, err := strconv.Atoi(string(keyExpr.Val))
+				if err != nil {
+					return nil, fmt.Errorf("invalid key value")
+				}
+				key = k
+			case "value":
+				valExpr, ok := vals[i].(*sqlparser.SQLVal)
+				if !ok {
+					return nil, fmt.Errorf("invalid value expression")
+				}
+				value = string(valExpr.Val)
+			default:
+				return nil, fmt.Errorf("unsupported column: %s", col.String())
 			}
-			keyParsed, err := strconv.Atoi(string(keyLiteral.Val))
-			if err != nil {
-				return nil, fmt.Errorf("invalid key integer value")
-			}
-			key = keyParsed
-		case "value":
-			valueExpr := vals[i]
-			valueLiteral, ok := valueExpr.(*sqlparser.SQLVal)
-			if !ok {
-				return nil, fmt.Errorf("invalid value")
-			}
-			value = string(valueLiteral.Val)
-		default:
-			return nil, fmt.Errorf("unsupported column %s", col.String())
 		}
 	}
 
-	err := db.Put(table, key, value)
-	if err != nil {
+	if err := db.Put(table, key, value); err != nil {
 		return nil, fmt.Errorf("failed to put value: %w", err)
 	}
 
