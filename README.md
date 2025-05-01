@@ -7,6 +7,8 @@
 
 LiteGoDB is a lightweight key-value database written in Go, featuring a B-Tree storage engine, write-ahead logging (WAL), SQL-like command support, and a REST/WebSocket interface.
 
+➡️ See the [ROADMAP](./ROADMAP.md) for upcoming features
+
 ## Features
 
 - B-Tree-based key-value storage engine
@@ -98,3 +100,4 @@ Contributions are welcome! Feel free to fork the repository, submit issues, or o
 ## License
 
 MIT License — see the LICENSE file for details.
+
