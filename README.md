@@ -1,4 +1,9 @@
 # LiteGoDB
+![Go Version](https://img.shields.io/badge/go-1.23-blue.svg)
+![License](https://img.shields.io/github/license/rafaelmgr12/litegodb)
+![Build](https://github.com/rafaelmgr12/litegodb/actions/workflows/release.yml/badge.svg)
+![Docker](https://img.shields.io/badge/docker-ready-blue)
+![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 
 LiteGoDB is a lightweight key-value database written in Go, featuring a B-Tree storage engine, write-ahead logging (WAL), SQL-like command support, and a REST/WebSocket interface.
 
