@@ -1,130 +1,95 @@
 # LiteGoDB
 
-LiteGoDB is a lightweight key-value store implemented in Go. Inspired by the book "Building a Database from Scratch in Go" by James Smith, the project aims to provide a practical, from-scratch implementation of a key-value database featuring B-Trees and LSM Trees, coupled with concepts like Write-Ahead Logging (WAL) and disk-based storage management.
-
-## Table of Contents
-- [LiteGoDB](#litegodb)
-  - [Table of Contents](#table-of-contents)
-  - [Introduction](#introduction)
-  - [Features](#features)
-  - [Installation](#installation)
-  - [Usage](#usage)
-  - [Testing](#testing)
-  - [Notes](#notes)
-    - [Appendix Notes](#appendix-notes)
-      - [Key Concepts](#key-concepts)
-  - [Contributing](#contributing)
-  - [License](#license)
-
-## Introduction
-LiteGoDB is designed to demonstrate the fundamentals of database architecture, focusing on the implementation of B-Trees and LSM Trees. It includes disk persistence, write-ahead logging, and the ability to recover from crashes. The project is ideal for learning purposes and is built with simplicity and clarity in mind.
+LiteGoDB is a lightweight key-value database written in Go, featuring a B-Tree storage engine, write-ahead logging (WAL), SQL-like command support, and a REST/WebSocket interface.
 
 ## Features
-- **B-Tree-based key-value store**: Efficient data insertion, search, and deletion operations.
-- **Write-Ahead Logs (WAL)**: Ensures durability and consistency.
-- **Disk-based storage management**: Manages pages on disk, supports periodic flushing for persistence.
-- **Log-Structured Merge Trees (LSM Trees)**: Provides efficient writes and reads via an in-memory tree merged with disk-based storage.
-- **Crash Recovery**: Recovers from crashes using WAL.
 
-## Installation
-To install LiteGoDB, you need to have Go installed on your machine. Clone the project repository and build the project using the following steps:
+- B-Tree-based key-value storage engine
+- Write-Ahead Logging (WAL) for durability and crash recovery
+- SQL-like query support: `INSERT`, `SELECT`, `DELETE`
+- REST API and WebSocket interface
+- Native Go client
+- CLI client (`litegodbc`)
+- Docker-ready for local or containerized deployment
 
-```sh
+## Getting Started
+
+### Run with Docker
+
+```bash
 git clone https://github.com/rafaelmgr12/litegodb.git
 cd litegodb
-go build
+docker compose up --build
 ```
 
-## Usage
-Here is a simple example of how to use LiteGoDB:
+This will start the LiteGoDB server at http://localhost:8080
 
-1. **Initialize the key-value store**
+## API Usage
+
+### Insert a key-value pair
+
+```bash
+curl -X POST http://localhost:8080/sql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"INSERT INTO users VALUES (1, '\''rafael'\'')"}'
+```
+
+### Retrieve a value by key
+
+```bash
+curl -X POST http://localhost:8080/sql \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT * FROM users WHERE `key` = 1"}'
+```
+
+## Native Go Usage
 
 ```go
-package main
+import "github.com/rafaelmgr12/litegodb/pkg/litegodb"
 
-import (
-    "log"
-    "time"
-    "github.com/rafaelmgr12/litegodb/internal/storage/disk"
-    "github.com/rafaelmgr12/litegodb/internal/storage/kvstore"
-)
-
-func main() {
-    // Create a new DiskManager
-    diskManager, err := disk.NewFileDiskManager("data.db")
-    if err != nil {
-        log.Fatalf("Failed to create disk manager: %v", err)
-    }
-    defer diskManager.Close()
-
-    // Initialize the key-value store with a degree of 2 for the B-Tree
-    kvStore, err := kvstore.NewBTreeKVStore(2, diskManager, "log.db")
-    if err != nil {
-        log.Fatalf("Failed to create the key-value store: %v", err)
-    }
-    defer kvStore.Close()
-
-    // Start periodic flushing to disk every 10 seconds
-    kvStore.StartPeriodicFlush(10 * time.Second)
-    
-    // Put some key-value pairs
-    if err := kvStore.Put(1, "value1"); err != nil {
-        log.Fatalf("Failed to put key-value pair: %v", err)
-    }
-    if err := kvStore.Put(2, "value2"); err != nil {
-        log.Fatalf("Failed to put key-value pair: %v", err)
-    }
-
-    // Get key-value pairs
-    value, found, err := kvStore.Get(1)
-    if err != nil {
-        log.Fatalf("Failed to get key-value pair: %v", err)
-    }
-    if found {
-        log.Printf("Key 1: %s\n", value)
-    } else {
-        log.Println("Key 1 not found")
-    }
-
-    // Delete a key-value pair
-    if err := kvStore.Delete(2); err != nil {
-        log.Fatalf("Failed to delete key-value pair: %v", err)
-    }
-}
+db, _ := litegodb.Open("config.yaml")
+db.Put("users", 1, "rafael")
+value, found, _ := db.Get("users", 1)
 ```
 
 ## Testing
-LiteGoDB includes several tests to ensure correctness. To run the tests, use:
 
-```sh
+Run all unit and integration tests:
+
+```bash
 go test ./...
 ```
 
-This will run all integration and unit tests to verify that different components of LiteGoDB work as expected.
+## CLI (litegodbc)
 
-## Notes
+The CLI client connects to a LiteGoDB server via HTTP.
 
-### Appendix Notes
-When working with databases or file systems, data is read from and written to disk in **pages**, which are fixed-sized chunks of data. This concept is crucial for understanding data structures like B-Trees or LSM Trees, which are optimized for disk I/O.
+```bash
+go run cmd/litegodbc/main.go --url http://localhost:8080
+> INSERT INTO users VALUES (1, 'joao');
+> SELECT * FROM users WHERE `key` = 1;
+```
 
-#### Key Concepts
-1. **What is a Page?**
-   - A **page** is the smallest unit of data that a database or file system reads from or writes to disk.
-   - Common page sizes include 4 KB and 8 KB.
+## Project Structure
 
-2. **Why Pages?**
-   - **Disk I/O Cost**: Disk operations are slow compared to memory operations. By reading or writing in fixed-size chunks (pages), the system reduces the number of I/O operations.
-   - **Alignment with Storage Devices**: Storage devices like HDDs and SSDs are optimized for reading and writing blocks of data, which correspond to page sizes.
-
-3. **B-Trees and Pages**
-   - **Node Size Matches Page Size**: Each node in a B-Tree fits within a single page. When accessing a node, the database reads the entire page containing that node into memory in one I/O operation.
-   - **Minimizing I/O**: By maximizing the number of keys stored in each node (based on the page size), the B-Tree reduces its height.
+```
+litegodb/
+├── cmd/
+│   ├── server/        # REST/WebSocket server entrypoint
+│   └── litegodbc/     # CLI client
+├── internal/
+│   └── storage/       # B-Tree engine, disk manager, WAL
+├── pkg/
+│   └── litegodb/      # Public Go API interface
+├── config.yaml        # Server configuration
+├── Dockerfile         # Container build config
+└── docker-compose.yml # Local dev environment
+```
 
 ## Contributing
-Contributions are welcome! If you find a bug or want to add a new feature, feel free to fork the repository, make your changes, and open a pull request.
+
+Contributions are welcome! Feel free to fork the repository, submit issues, or open pull requests.
 
 ## License
-This project is licensed under the MIT License. See the LICENSE file for details.
 
----
+MIT License — see the LICENSE file for details.
