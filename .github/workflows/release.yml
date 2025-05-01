@@ -22,9 +22,9 @@ jobs:
       - name: Run Tests
         run: go test ./...
 
-      - name: Build CLI
+      - name: Build Server Binary
         run: |
-          mkdir dist
+          mkdir -p dist
           go build -o dist/litegodb cmd/server/main.go
 
       - name: Create GitHub Release
@@ -40,11 +40,6 @@ jobs:
             - REST and WebSocket APIs
             - Docker-ready
             - CLI client (`litegodbc`)
-
+          files: dist/litegodb
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-
-      - name: Upload Binary
-        uses: softprops/action-gh-release@v1
-        with:
-          files: dist/litegodb
