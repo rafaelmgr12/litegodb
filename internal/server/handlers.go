@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"github.com/rafaelmgr12/litegodb/internal/sqlparser"
 )
 
 func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -98,4 +100,38 @@ func (s *Server) deleteHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) sqlHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Query string `json:"query"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Query == "" {
+		http.Error(w, "Empty query", http.StatusBadRequest)
+		return
+	}
+
+	result, err := sqlparser.ParseAndExecute(req.Query, s.DB)
+	if err != nil {
+		http.Error(w, "SQL execution error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if result == nil {
+		http.Error(w, "No result", http.StatusNotFound)
+		return
+	}
+
+	resp := map[string]interface{}{
+		"status": "ok",
+		"result": result,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+
 }

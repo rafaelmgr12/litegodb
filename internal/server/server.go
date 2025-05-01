@@ -40,6 +40,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/put", s.withAuth(s.putHandler))
 	s.mux.HandleFunc("/get", s.withAuth(s.getHandler))
 	s.mux.HandleFunc("/delete", s.withAuth(s.deleteHandler))
+	s.mux.HandleFunc("/sql", s.withAuth(s.sqlHandler))
 	s.mux.HandleFunc("/ws", s.wsHandler)
 }
 
