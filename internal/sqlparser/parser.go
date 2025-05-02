@@ -10,7 +10,15 @@ import (
 	"github.com/xwb1989/sqlparser"
 )
 
-func ParseAndExecute(query string, db litegodb.DB) (interface{}, error) {
+func ParseAndExecute(query string, db litegodb.DB, session *session.Session) (interface{}, error) {
+	upper := strings.ToUpper(strings.TrimSpace(query))
+
+	if strings.HasPrefix(upper, "BEGIN") ||
+		strings.HasPrefix(upper, "COMMIT") ||
+		strings.HasPrefix(upper, "ROLLBACK") {
+		return handleTransaction(query, db, session)
+	}
+
 	stmt, err := sqlparser.Parse(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse query: %w", err)
@@ -18,17 +26,17 @@ func ParseAndExecute(query string, db litegodb.DB) (interface{}, error) {
 
 	switch stmt := stmt.(type) {
 	case *sqlparser.Insert:
-		return handleInsert(stmt, db)
+		return handleInsert(stmt, db, session)
 	case *sqlparser.Select:
 		return handleSelect(stmt, db)
 	case *sqlparser.Delete:
-		return handleDelete(stmt, db)
+		return handleDelete(stmt, db, session)
 	default:
 		return nil, fmt.Errorf("unsupported SQL statement")
 	}
 }
 
-func handleInsert(stmt *sqlparser.Insert, db litegodb.DB) (interface{}, error) {
+func handleInsert(stmt *sqlparser.Insert, db litegodb.DB, session *session.Session) (interface{}, error) {
 	table := stmt.Table.Name.String()
 	rows := stmt.Rows.(sqlparser.Values)
 
@@ -37,7 +45,6 @@ func handleInsert(stmt *sqlparser.Insert, db litegodb.DB) (interface{}, error) {
 	}
 
 	vals := rows[0]
-
 	var key int
 	var value string
 
@@ -51,11 +58,11 @@ func handleInsert(stmt *sqlparser.Insert, db litegodb.DB) (interface{}, error) {
 			return nil, fmt.Errorf("invalid values")
 		}
 
-		keyParsed, err := strconv.Atoi(string(keyExpr.Val))
+		k, err := strconv.Atoi(string(keyExpr.Val))
 		if err != nil {
 			return nil, fmt.Errorf("invalid key value")
 		}
-		key = keyParsed
+		key = k
 		value = string(valExpr.Val)
 	} else {
 		for i, col := range stmt.Columns {
@@ -82,8 +89,12 @@ func handleInsert(stmt *sqlparser.Insert, db litegodb.DB) (interface{}, error) {
 		}
 	}
 
-	if err := db.Put(table, key, value); err != nil {
-		return nil, fmt.Errorf("failed to put value: %w", err)
+	if session != nil && session.Transaction != nil {
+		session.Transaction.PutBatch(table, key, value)
+	} else {
+		if err := db.Put(table, key, value); err != nil {
+			return nil, fmt.Errorf("failed to put value: %w", err)
+		}
 	}
 
 	return "inserted", nil
@@ -91,11 +102,9 @@ func handleInsert(stmt *sqlparser.Insert, db litegodb.DB) (interface{}, error) {
 
 func handleSelect(stmt *sqlparser.Select, db litegodb.DB) (interface{}, error) {
 	table := stmt.From[0].(*sqlparser.AliasedTableExpr).Expr.(sqlparser.TableName).Name.String()
-
 	var key int
 	foundKey := false
 
-	// Parse WHERE key = X
 	if stmt.Where != nil {
 		compExpr, ok := stmt.Where.Expr.(*sqlparser.ComparisonExpr)
 		if !ok {
@@ -136,9 +145,8 @@ func handleSelect(stmt *sqlparser.Select, db litegodb.DB) (interface{}, error) {
 	}, nil
 }
 
-func handleDelete(stmt *sqlparser.Delete, db litegodb.DB) (interface{}, error) {
+func handleDelete(stmt *sqlparser.Delete, db litegodb.DB, session *session.Session) (interface{}, error) {
 	table := stmt.TableExprs[0].(*sqlparser.AliasedTableExpr).Expr.(sqlparser.TableName).Name.String()
-
 	var key int
 	foundKey := false
 
@@ -168,9 +176,12 @@ func handleDelete(stmt *sqlparser.Delete, db litegodb.DB) (interface{}, error) {
 		return nil, fmt.Errorf("WHERE clause with key is required")
 	}
 
-	err := db.Delete(table, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete key: %w", err)
+	if session != nil && session.Transaction != nil {
+		session.Transaction.DeleteBatch(table, key)
+	} else {
+		if err := db.Delete(table, key); err != nil {
+			return nil, fmt.Errorf("failed to delete key: %w", err)
+		}
 	}
 
 	return "deleted", nil
