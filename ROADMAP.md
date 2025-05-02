@@ -6,7 +6,7 @@ This roadmap outlines planned features and goals for the next version of LiteGoD
 
 ## 🔧 Core Engine Improvements
 
-- [ ] **Transaction support (PutBatch / Commit / Rollback)**
+- [x] **Transaction support (PutBatch / Commit / Rollback)**
 - [ ] **Time-To-Live (TTL) for keys**
 - [ ] **Table metadata support** (e.g. created_at, count)
 
