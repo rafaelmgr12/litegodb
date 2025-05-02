@@ -93,3 +93,11 @@ func TestTransaction_DeleteBatch_Rollback(t *testing.T) {
 	assert.True(t, found)
 	assert.Equal(t, "keepme", v)
 }
+
+func TestTransaction_EmptyCommit(t *testing.T) {
+	kv := setupTestKV(t)
+
+	tx := kv.BeginTransaction()
+	err := tx.Commit()
+	assert.NoError(t, err) // Committing an empty transaction should not fail
+}
