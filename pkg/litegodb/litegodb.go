@@ -2,6 +2,8 @@
 // key-value database using a B-Tree as the underlying storage mechanism.
 package litegodb
 
+import "github.com/rafaelmgr12/litegodb/internal/storage/kvstore"
+
 // DB defines the interface for interacting with the database.
 // It includes methods for basic CRUD operations, table management, and lifecycle management.
 type DB interface {
@@ -29,4 +31,7 @@ type DB interface {
 
 	// Close closes the database and releases all resources.
 	Close() error
+
+	// BeginTransaction starts a new transaction.
+	BeginTransaction() *kvstore.Transaction
 }
