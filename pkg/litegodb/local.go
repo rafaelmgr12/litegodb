@@ -60,3 +60,8 @@ func (b *btreeAdapter) CreateTable(table string, degree int) error {
 func (b *btreeAdapter) DropTable(table string) error {
 	return b.kv.DropTable(table)
 }
+
+// BeginTransaction starts a new transaction.
+func (b *btreeAdapter) BeginTransaction() *kvstore.Transaction {
+	return b.kv.BeginTransaction()
+}
