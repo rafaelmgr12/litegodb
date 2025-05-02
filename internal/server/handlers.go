@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/rafaelmgr12/litegodb/internal/session"
 	"github.com/rafaelmgr12/litegodb/internal/sqlparser"
 )
 
@@ -104,7 +105,8 @@ func (s *Server) deleteHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) sqlHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Query string `json:"query"`
+		Query   string `json:"query"`
+		Session string `json:"session"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -117,7 +119,14 @@ func (s *Server) sqlHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := sqlparser.ParseAndExecute(req.Query, s.DB)
+	session := session.NewSessionManager()
+	sess := session.GetOrCreate(req.Session)
+	if sess == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	result, err := sqlparser.ParseAndExecute(req.Query, s.DB, sess)
 	if err != nil {
 		http.Error(w, "SQL execution error: "+err.Error(), http.StatusInternalServerError)
 		return
