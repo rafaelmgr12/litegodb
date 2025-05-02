@@ -145,3 +145,97 @@ func TestRemoteAdapter_Get_NotFound(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, found)
 }
+
+func TestRemoteTransaction_EmptyCommit(t *testing.T) {
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tx/commit" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+
+	defer server.Close()
+
+	remoteDB, err := litegodb.OpenRemote(server.URL)
+	assert.NoError(t, err)
+
+	tx := remoteDB.BeginTransaction()
+	assert.NotNil(t, tx)
+
+	// Commit an empty transaction
+	err = tx.Commit()
+	assert.NoError(t, err)
+}
+
+func TestRemoteTransaction_RollbackWithoutCommit(t *testing.T) {
+	remoteDB, err := litegodb.OpenRemote("http://example.com")
+	assert.NoError(t, err)
+
+	tx := remoteDB.BeginTransaction()
+	assert.NotNil(t, tx)
+
+	// Rollback without committing
+	assert.NotPanics(t, func() {
+		tx.Rollback()
+	})
+}
+
+func TestRemoteTransaction_PartialCommitFailure(t *testing.T) {
+
+	// Create a fake HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/commit":
+			// Simulate a partial failure during commit
+			http.Error(w, "Partial failure", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	remoteDB, err := litegodb.OpenRemote(server.URL)
+	assert.NoError(t, err)
+
+	tx := remoteDB.BeginTransaction()
+	assert.NotNil(t, tx)
+
+	tx.PutBatch("users", 1, "rafael")
+	tx.PutBatch("users", 2, "maria")
+
+	// Commit the transaction and expect an error
+	err = tx.Commit()
+	assert.Error(t, err)
+}
+
+func TestRemoteTransaction_ConcurrentTransactions(t *testing.T) {
+	// Create a fake HTTP server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tx/commit" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+
+	defer server.Close()
+
+	remoteDB, err := litegodb.OpenRemote(server.URL)
+	assert.NoError(t, err)
+
+	// Start two concurrent transactions
+	tx1 := remoteDB.BeginTransaction()
+	tx2 := remoteDB.BeginTransaction()
+
+	tx1.PutBatch("users", 1, "rafael")
+	tx2.PutBatch("users", 2, "maria")
+
+	// Commit both transactions
+	err1 := tx1.Commit()
+	err2 := tx2.Commit()
+
+	assert.NoError(t, err1)
+	assert.NoError(t, err2)
+}
