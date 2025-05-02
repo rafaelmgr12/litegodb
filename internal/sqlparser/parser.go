@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rafaelmgr12/litegodb/internal/session"
 	"github.com/rafaelmgr12/litegodb/pkg/litegodb"
 	"github.com/xwb1989/sqlparser"
 )
@@ -173,4 +174,39 @@ func handleDelete(stmt *sqlparser.Delete, db litegodb.DB) (interface{}, error) {
 	}
 
 	return "deleted", nil
+}
+
+func handleTransaction(query string, db litegodb.DB, session *session.Session) (any, error) {
+	upper := strings.ToUpper(strings.TrimSpace(query))
+
+	switch {
+	case strings.HasPrefix(upper, "BEGIN"):
+		if session.Transaction != nil {
+			return nil, fmt.Errorf("a transaction is already active")
+		}
+		session.Transaction = db.BeginTransaction()
+		return "transaction started", nil
+
+	case strings.HasPrefix(upper, "COMMIT"):
+		if session.Transaction == nil {
+			return nil, fmt.Errorf("no active transaction to commit")
+		}
+		err := session.Transaction.Commit()
+		session.Transaction = nil
+		if err != nil {
+			return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		}
+		return "transaction committed", nil
+
+	case strings.HasPrefix(upper, "ROLLBACK"):
+		if session.Transaction == nil {
+			return nil, fmt.Errorf("no active transaction to rollback")
+		}
+		session.Transaction.Rollback()
+		session.Transaction = nil
+		return "transaction rolled back", nil
+
+	default:
+		return nil, fmt.Errorf("unsupported transaction statement: %s", query)
+	}
 }
