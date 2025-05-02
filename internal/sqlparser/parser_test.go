@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/rafaelmgr12/litegodb/internal/sqlparser"
-	"github.com/rafaelmgr12/litegodb/internal/storage/kvstore"
+	"github.com/rafaelmgr12/litegodb/pkg/litegodb"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -47,7 +47,7 @@ func (m *mockDB) CreateTable(table string, degree int) error { return nil }
 func (m *mockDB) DropTable(table string) error               { return nil }
 func (m *mockDB) Load() error                                { return nil }
 func (m *mockDB) Close() error                               { return nil }
-func (m *mockDB) BeginTransaction() *kvstore.Transaction     { return nil }
+func (m *mockDB) BeginTransaction() litegodb.Transaction     { return nil }
 
 func TestParseAndExecute_InsertSelectDelete(t *testing.T) {
 	db := newMockDB()

@@ -62,6 +62,6 @@ func (b *btreeAdapter) DropTable(table string) error {
 }
 
 // BeginTransaction starts a new transaction.
-func (b *btreeAdapter) BeginTransaction() *kvstore.Transaction {
+func (b *btreeAdapter) BeginTransaction() Transaction {
 	return b.kv.BeginTransaction()
 }

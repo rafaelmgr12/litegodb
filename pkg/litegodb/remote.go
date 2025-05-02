@@ -14,6 +14,13 @@ type remoteAdapter struct {
 	httpClient *http.Client
 }
 
+// remoteTransaction represents a transaction for the remote LiteGoDB server.
+type remoteTransaction struct {
+	client     *http.Client
+	baseURL    string
+	operations []map[string]interface{}
+}
+
 // OpenRemote opens a connection to a remote LiteGoDB server.
 // It returns a DB interface that can be used to interact with the remote database.
 func OpenRemote(baseURL string) (DB, error) {
@@ -114,6 +121,64 @@ func (r *remoteAdapter) Load() error {
 func (r *remoteAdapter) Close() error {
 	// No persistent connection, so nothing to close
 	return nil
+}
+
+// BeginTransaction starts a new transaction on the remote LiteGoDB server.
+// It returns a Transaction object that can be used to queue operations.
+func (r *remoteAdapter) BeginTransaction() Transaction {
+	return &remoteTransaction{
+		client:     r.httpClient,
+		baseURL:    r.baseURL,
+		operations: []map[string]interface{}{},
+	}
+}
+
+// PutBatch queues a PUT operation in the transaction for the specified table and key-value pair.
+func (rt *remoteTransaction) PutBatch(table string, key int, value string) {
+	rt.operations = append(rt.operations, map[string]interface{}{
+		"op":    "put",
+		"table": table,
+		"key":   key,
+		"value": value,
+	})
+}
+
+// DeleteBatch queues a DELETE operation in the transaction for the specified table and key.
+func (rt *remoteTransaction) DeleteBatch(table string, key int) {
+	rt.operations = append(rt.operations, map[string]interface{}{
+		"op":    "delete",
+		"table": table,
+		"key":   key,
+	})
+}
+
+// Commit sends all queued operations in the transaction to the remote LiteGoDB server.
+// It returns an error if the commit operation fails.
+func (rt *remoteTransaction) Commit() error {
+	payload := map[string]interface{}{
+		"operations": rt.operations,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	resp, err := rt.client.Post(rt.baseURL+"/tx/commit", "application/json", bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("commit failed: %s", resp.Status)
+	}
+
+	return nil
+}
+
+// Rollback discards all queued operations in the transaction.
+func (rt *remoteTransaction) Rollback() {
+	rt.operations = nil
 }
 
 // post sends a POST request to the specified path with the provided body to the remote LiteGoDB server.

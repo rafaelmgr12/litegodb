@@ -2,15 +2,17 @@ package session
 
 import (
 	"sync"
+	"time"
 
-	"github.com/rafaelmgr12/litegodb/internal/storage/kvstore"
+	"github.com/rafaelmgr12/litegodb/pkg/litegodb"
 )
 
 // Session represents a user session, which may include an active transaction.
 // Each session is identified by a unique ID and can hold a reference to a transaction.
 type Session struct {
 	ID          string
-	Transaction *kvstore.Transaction
+	Transaction litegodb.Transaction
+	LastActive  time.Time
 }
 
 // SessionManager manages multiple user sessions, allowing for the creation,
