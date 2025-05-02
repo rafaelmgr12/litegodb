@@ -109,6 +109,7 @@ func (mt *mockTransaction) Commit() error {
 }
 func (mt *mockTransaction) Rollback() {
 	mt.rolledBack = true
+	mt.operations = nil
 }
 
 type mockDBWithTransaction struct {
@@ -177,4 +178,108 @@ func TestParseAndExecute_TransactionWithOperations(t *testing.T) {
 	// Validate transaction state
 	assert.True(t, db.transaction.committed, "Transaction should be committed")
 	assert.Equal(t, []string{"PUT", "DELETE"}, db.transaction.operations, "Operations should match queued actions")
+}
+
+func TestParseAndExecute_TransactionRollbackWithoutOperations(t *testing.T) {
+
+	db := newMockDBWithTransaction()
+	session := session.NewSessionManager().GetOrCreate("tx-empty-rollback")
+
+	_, err := sqlparser.ParseAndExecute("BEGIN", db, session)
+	assert.NoError(t, err)
+
+	// ROLLBACK transaction without any operations
+	_, err = sqlparser.ParseAndExecute("ROLLBACK", db, session)
+	assert.NoError(t, err)
+
+	// Validate transaction state
+	assert.True(t, db.transaction.rolledBack, "Transaction should be rolled back")
+	assert.Empty(t, db.transaction.operations, "No operations should be queued")
+
+}
+
+func TestParseAndExecute_TransactionCommitWithoutOperations(t *testing.T) {
+	db := newMockDBWithTransaction()
+	session := session.NewSessionManager().GetOrCreate("tx-empty-commit")
+
+	// BEGIN transaction
+	_, err := sqlparser.ParseAndExecute("BEGIN", db, session)
+	assert.NoError(t, err)
+
+	// COMMIT transaction without any operations
+	_, err = sqlparser.ParseAndExecute("COMMIT", db, session)
+	assert.NoError(t, err)
+
+	// Validate transaction state
+	assert.True(t, db.transaction.committed, "Transaction should be committed")
+	assert.Empty(t, db.transaction.operations, "No operations should be queued")
+}
+
+func TestParseAndExecute_NestedTransactions(t *testing.T) {
+	db := newMockDBWithTransaction()
+	session := session.NewSessionManager().GetOrCreate("tx-nested")
+
+	// BEGIN first transaction
+	_, err := sqlparser.ParseAndExecute("BEGIN", db, session)
+	assert.NoError(t, err)
+
+	// Attempt to BEGIN a nested transaction
+	_, err = sqlparser.ParseAndExecute("BEGIN", db, session)
+	assert.Error(t, err, "Nested transactions should not be allowed")
+
+	// ROLLBACK the first transaction
+	_, err = sqlparser.ParseAndExecute("ROLLBACK", db, session)
+	assert.NoError(t, err)
+}
+
+func TestParseAndExecute_TransactionWithMultipleOperations(t *testing.T) {
+	db := newMockDBWithTransaction()
+	session := session.NewSessionManager().GetOrCreate("tx-multi-ops")
+
+	// BEGIN transaction
+	_, err := sqlparser.ParseAndExecute("BEGIN", db, session)
+	assert.NoError(t, err)
+
+	// Perform multiple operations
+	_, err = sqlparser.ParseAndExecute("INSERT INTO users (`key`, `value`) VALUES (1, 'rafael')", db, session)
+	assert.NoError(t, err)
+
+	_, err = sqlparser.ParseAndExecute("INSERT INTO users (`key`, `value`) VALUES (2, 'maria')", db, session)
+	assert.NoError(t, err)
+
+	_, err = sqlparser.ParseAndExecute("DELETE FROM users WHERE `key` = 1", db, session)
+	assert.NoError(t, err)
+
+	// COMMIT transaction
+	_, err = sqlparser.ParseAndExecute("COMMIT", db, session)
+	assert.NoError(t, err)
+
+	// Validate transaction state
+	assert.True(t, db.transaction.committed, "Transaction should be committed")
+	assert.Equal(t, []string{"PUT", "PUT", "DELETE"}, db.transaction.operations, "Operations should match queued actions")
+}
+
+func TestParseAndExecute_TransactionRollbackAfterFailure(t *testing.T) {
+	db := newMockDBWithTransaction()
+	session := session.NewSessionManager().GetOrCreate("tx-rollback-failure")
+
+	// BEGIN transaction
+	_, err := sqlparser.ParseAndExecute("BEGIN", db, session)
+	assert.NoError(t, err)
+
+	// Perform a valid operation
+	_, err = sqlparser.ParseAndExecute("INSERT INTO users (`key`, `value`) VALUES (1, 'rafael')", db, session)
+	assert.NoError(t, err)
+
+	// Perform an invalid operation
+	_, err = sqlparser.ParseAndExecute("INVALID QUERY", db, session)
+	assert.Error(t, err)
+
+	// ROLLBACK transaction
+	_, err = sqlparser.ParseAndExecute("ROLLBACK", db, session)
+	assert.NoError(t, err)
+
+	// Validate transaction state
+	assert.True(t, db.transaction.rolledBack, "Transaction should be rolled back")
+	assert.Empty(t, db.transaction.operations, "No operations should remain after rollback")
 }
