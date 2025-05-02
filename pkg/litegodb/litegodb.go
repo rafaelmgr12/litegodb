@@ -29,4 +29,22 @@ type DB interface {
 
 	// Close closes the database and releases all resources.
 	Close() error
+
+	// BeginTransaction starts a new transaction.
+	BeginTransaction() Transaction
+}
+
+// Transaction defines the interface for database transactions.
+type Transaction interface {
+	// PutBatch queues a PUT operation for later commit.
+	PutBatch(table string, key int, value string)
+
+	// DeleteBatch queues a DELETE operation for later commit.
+	DeleteBatch(table string, key int)
+
+	// Commit applies all queued operations to the database.
+	Commit() error
+
+	// Rollback discards all queued operations.
+	Rollback()
 }

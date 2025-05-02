@@ -46,6 +46,7 @@ func TestKVStoreIntegration(t *testing.T) {
 		t.Fatalf("Failed to create table: %v", err)
 	}
 
+	testTransactionIntegration(t, kvStore, table+"_tx")
 	testBasicOperations(t, kvStore, table)
 	testCrashRecovery(t, dbFile, logFile, table+"_crash")
 	testPeriodicFlush(t, dbFile, logFile, table+"_flush")
@@ -141,6 +142,40 @@ func testPeriodicFlush(t *testing.T, dbFile, logFile, table string) {
 
 		assertGet(t, recoveredStore, table, 1, "one")
 		assertGet(t, recoveredStore, table, 2, "two")
+	})
+}
+
+func testTransactionIntegration(t *testing.T, kvStore *kvstore.BTreeKVStore, table string) {
+	t.Run("Transaction Integration", func(t *testing.T) {
+		// Ensure the table is created
+		err := kvStore.CreateTableName(table, 3)
+		require.NoError(t, err)
+
+		// Begin a transaction and commit it
+		tx := kvStore.BeginTransaction()
+		tx.PutBatch(table, 1, "one")
+		tx.PutBatch(table, 2, "two")
+
+		// Commit the transaction
+		err = tx.Commit()
+		require.NoError(t, err)
+
+		// Verify the committed data
+		assertGet(t, kvStore, table, 1, "one")
+		assertGet(t, kvStore, table, 2, "two")
+
+		// Begin another transaction and roll it back
+		tx = kvStore.BeginTransaction()
+		tx.PutBatch(table, 3, "three")
+		tx.Rollback()
+
+		// Verify that the rolled-back data is not present
+		_, found, err := kvStore.Get(table, 3)
+		require.NoError(t, err)
+		require.False(t, found)
+
+		// Ensure the kvStore is not closed prematurely
+		require.NotNil(t, kvStore)
 	})
 }
 

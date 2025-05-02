@@ -81,3 +81,46 @@ func TestStressKVStore(t *testing.T) {
 		}
 	}
 }
+
+func TestStressKVStoreWithTransactions(t *testing.T) {
+	kvStore, cleanup := setupStressKVStore(t)
+	defer cleanup()
+
+	table := "stress_tx_table"
+	err := kvStore.CreateTableName(table, 3)
+	require.NoError(t, err)
+
+	const numberOfWorkers = 10
+	const numberOfRecords = 5000
+
+	var wg sync.WaitGroup
+	wg.Add(numberOfWorkers)
+
+	for i := 0; i < numberOfWorkers; i++ {
+		go func(workerID int) {
+			defer wg.Done()
+			tx := kvStore.BeginTransaction()
+			for j := 0; j < numberOfRecords; j++ {
+				key := workerID*numberOfRecords + j
+				value := fmt.Sprintf("value%d", key)
+				tx.PutBatch(table, key, value)
+			}
+			err := tx.Commit()
+			require.NoError(t, err)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify all records
+	for i := 0; i < numberOfWorkers; i++ {
+		for j := 0; j < numberOfRecords; j++ {
+			key := i*numberOfRecords + j
+			expectedValue := fmt.Sprintf("value%d", key)
+			gotValue, found, err := kvStore.Get(table, key)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, expectedValue, gotValue)
+		}
+	}
+}

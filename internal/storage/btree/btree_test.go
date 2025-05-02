@@ -3,12 +3,14 @@ package btree_test
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"math/rand"
 
 	"github.com/rafaelmgr12/litegodb/internal/storage/btree"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBTreeInsertSmallDegree(t *testing.T) {
@@ -260,6 +262,130 @@ func TestBtreeSerialize(t *testing.T) {
 			t.Fatalf("expected value %s for key %d, got %v", tc.value, tc.key, value)
 		}
 	}
+}
+
+func TestEmptyTreeOperations(t *testing.T) {
+	btree := btree.NewBTree(2)
+
+	// Search in an empty tree
+	if _, found := btree.Search(10); found {
+		t.Fatalf("unexpectedly found key in empty tree")
+	}
+
+	// Delete in an empty tree
+	btree.Delete(10) // Should not panic
+}
+
+func TestTreeGrowth(t *testing.T) {
+	btree := btree.NewBTree(2)
+
+	// Insert enough keys to grow the tree height
+	for i := 0; i < 100; i++ {
+		btree.Insert(i, fmt.Sprintf("value%d", i))
+	}
+
+	// Verify all keys exist
+	for i := 0; i < 100; i++ {
+		value, found := btree.Search(i)
+		if !found {
+			t.Fatalf("key %d not found", i)
+		}
+		if value != fmt.Sprintf("value%d", i) {
+			t.Fatalf("expected value%d, got %v", i, value)
+		}
+	}
+}
+
+func TestSmallestDegree(t *testing.T) {
+	btree := btree.NewBTree(2)
+
+	// Insert and delete keys
+	btree.Insert(1, "one")
+	btree.Insert(2, "two")
+	btree.Delete(1)
+
+	if _, found := btree.Search(1); found {
+		t.Fatalf("key 1 found after deletion")
+	}
+
+	value, found := btree.Search(2)
+	if !found || value != "two" {
+		t.Fatalf("key 2 not found or incorrect value")
+	}
+}
+
+func TestConcurrentAccess(t *testing.T) {
+	btree := btree.NewBTree(3)
+	var wg sync.WaitGroup
+
+	// Concurrent inserts
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			btree.Insert(i, fmt.Sprintf("value%d", i))
+		}
+	}()
+
+	// Concurrent searches
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			btree.Search(i)
+		}
+	}()
+
+	wg.Wait()
+}
+
+func TestInsertNilValuePanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic on nil value")
+		}
+	}()
+	b := btree.NewBTree(2)
+	b.Insert(1, nil)
+}
+
+func TestDeserializeWithInvalidData(t *testing.T) {
+	_, err := btree.Deserialize([]byte{1, 2}, func(id int32) ([]byte, error) {
+		return nil, fmt.Errorf("should not be called")
+	})
+	if err == nil {
+		t.Fatalf("expected error when deserializing invalid data")
+	}
+}
+
+func TestBTreeDeleteTriggersMerge(t *testing.T) {
+	b := btree.NewBTree(2)
+
+	keys := []int{1, 2, 3, 4, 5}
+	for _, k := range keys {
+		b.Insert(k, fmt.Sprintf("val%d", k))
+	}
+	b.Delete(3)
+
+	for _, k := range []int{1, 2, 4, 5} {
+		v, found := b.Search(k)
+		require.True(t, found)
+		require.Equal(t, fmt.Sprintf("val%d", k), v)
+	}
+}
+
+func TestSerializeNonStringValue(t *testing.T) {
+	b := btree.NewBTree(2)
+	b.Insert(1, 123)
+
+	_, err := b.Serialize()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "value is not string")
+}
+
+func TestNewBTreeWithInvalidDegree(t *testing.T) {
+	b := btree.NewBTree(1)
+	require.Equal(t, 2, b.Degree()) // Verifica que foi ajustado para mínimo válido
 }
 
 func generateRandomString(length int, charset string) string {
