@@ -1,4 +1,5 @@
 # LiteGoDB
+
 ![Go Version](https://img.shields.io/badge/go-1.23-blue.svg)
 ![License](https://img.shields.io/github/license/rafaelmgr12/litegodb)
 ![Build](https://github.com/rafaelmgr12/litegodb/actions/workflows/release.yml/badge.svg)
@@ -29,7 +30,7 @@ cd litegodb
 docker compose up --build
 ```
 
-This will start the LiteGoDB server at http://localhost:8080
+This will start the LiteGoDB server at <http://localhost:8080>
 
 ## API Usage
 
@@ -79,7 +80,7 @@ go run cmd/litegodbc/main.go --url http://localhost:8080
 
 ## Project Structure
 
-```
+```bash
 litegodb/
 ├── cmd/
 │   ├── server/        # REST/WebSocket server entrypoint
@@ -100,4 +101,3 @@ Contributions are welcome! Feel free to fork the repository, submit issues, or o
 ## License
 
 MIT License — see the LICENSE file for details.
-
