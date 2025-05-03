@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/rafaelmgr12/litegodb/pkg/litegodb"
+	"github.com/rafaelmgr12/litegodb/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -146,7 +146,7 @@ func TestDeleteHandlerInvalidJSON(t *testing.T) {
 }
 
 func TestWithAuthTokenMissing(t *testing.T) {
-	cfg := &litegodb.Config{Server: litegodb.ServerConfig{AuthToken: "secret"}}
+	cfg := &config.Config{Server: config.ServerConfig{AuthToken: "secret"}}
 	s := &Server{Cfg: cfg}
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -163,7 +163,7 @@ func TestWithAuthTokenMissing(t *testing.T) {
 }
 
 func TestWithAuthTokenValid(t *testing.T) {
-	cfg := &litegodb.Config{Server: litegodb.ServerConfig{AuthToken: "secret"}}
+	cfg := &config.Config{Server: config.ServerConfig{AuthToken: "secret"}}
 	s := &Server{Cfg: cfg}
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer secret")

@@ -1,6 +1,6 @@
 package server
 
-import "github.com/rafaelmgr12/litegodb/pkg/litegodb"
+import "github.com/rafaelmgr12/litegodb/internal/interfaces"
 
 type fakeDB struct {
 	putFn    func(string, int, string) error
@@ -29,9 +29,9 @@ func (f *fakeDB) Delete(table string, key int) error {
 	return nil
 }
 
-func (f *fakeDB) Flush(table string) error               { return nil }
-func (f *fakeDB) CreateTable(table string, d int) error  { return nil }
-func (f *fakeDB) DropTable(table string) error           { return nil }
-func (f *fakeDB) Load() error                            { return nil }
-func (f *fakeDB) Close() error                           { return nil }
-func (f *fakeDB) BeginTransaction() litegodb.Transaction { return nil }
+func (f *fakeDB) Flush(table string) error                 { return nil }
+func (f *fakeDB) CreateTable(table string, d int) error    { return nil }
+func (f *fakeDB) DropTable(table string) error             { return nil }
+func (f *fakeDB) Load() error                              { return nil }
+func (f *fakeDB) Close() error                             { return nil }
+func (f *fakeDB) BeginTransaction() interfaces.Transaction { return nil }

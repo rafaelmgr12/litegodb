@@ -12,19 +12,20 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/rafaelmgr12/litegodb/pkg/litegodb"
+	"github.com/rafaelmgr12/litegodb/config"
+	"github.com/rafaelmgr12/litegodb/internal/interfaces"
 	"github.com/rs/cors"
 )
 
 type Server struct {
-	DB          litegodb.DB
-	Cfg         *litegodb.Config
+	DB          interfaces.DB
+	Cfg         *config.Config
 	mux         *http.ServeMux
 	connections map[*websocket.Conn]bool
 	connMutex   sync.Mutex
 }
 
-func NewServer(db litegodb.DB, cfg *litegodb.Config) *Server {
+func NewServer(db interfaces.DB, cfg *config.Config) *Server {
 	s := &Server{
 		DB:          db,
 		Cfg:         cfg,
