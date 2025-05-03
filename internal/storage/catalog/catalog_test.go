@@ -3,6 +3,7 @@ package catalog_test
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/rafaelmgr12/litegodb/internal/storage/catalog"
 	"github.com/rafaelmgr12/litegodb/internal/storage/disk"
@@ -112,6 +113,120 @@ func TestCatalog_SaveAndLoad(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, int32(4), meta.Degree)
 	assert.Equal(t, int32(10), meta.RootID)
+
+	require.NoError(t, dm.Close())
+}
+
+func TestCatalog_MetadataInitialization(t *testing.T) {
+	cat, cleanup := setupCatalog(t)
+	defer cleanup()
+
+	err := cat.CreateTable("users", 3, 1)
+	require.NoError(t, err)
+
+	meta, ok := cat.Get("users")
+	require.True(t, ok)
+
+	assert.Equal(t, "users", meta.Name)
+	assert.Equal(t, int32(3), meta.Degree)
+	assert.Equal(t, int32(1), meta.RootID)
+	assert.Equal(t, int32(0), meta.RowCount)
+	assert.WithinDuration(t, time.Now(), meta.CreatedAt, time.Second, "CreatedAt should be close to the current time")
+}
+
+func TestCatalog_IncrementRowCount(t *testing.T) {
+	cat, cleanup := setupCatalog(t)
+	defer cleanup()
+
+	err := cat.CreateTable("users", 3, 1)
+	require.NoError(t, err)
+
+	err = cat.IncrementRowCount("users")
+	require.NoError(t, err)
+
+	meta, ok := cat.Get("users")
+	require.True(t, ok)
+	assert.Equal(t, int32(1), meta.RowCount)
+
+	err = cat.IncrementRowCount("users")
+	require.NoError(t, err)
+
+	meta, ok = cat.Get("users")
+	require.True(t, ok)
+	assert.Equal(t, int32(2), meta.RowCount)
+}
+
+func TestCatalog_DecrementRowCount(t *testing.T) {
+	cat, cleanup := setupCatalog(t)
+	defer cleanup()
+
+	err := cat.CreateTable("users", 3, 1)
+	require.NoError(t, err)
+
+	err = cat.IncrementRowCount("users")
+	require.NoError(t, err)
+
+	err = cat.DecrementRowCount("users")
+	require.NoError(t, err)
+
+	meta, ok := cat.Get("users")
+	require.True(t, ok)
+	assert.Equal(t, int32(0), meta.RowCount)
+
+	err = cat.DecrementRowCount("users")
+	require.NoError(t, err)
+
+	meta, ok = cat.Get("users")
+	require.True(t, ok)
+	assert.Equal(t, int32(0), meta.RowCount)
+}
+
+func TestCatalog_RowCountOnNonExistentTable(t *testing.T) {
+	cat, cleanup := setupCatalog(t)
+	defer cleanup()
+
+	err := cat.IncrementRowCount("nonexistent")
+	require.Error(t, err)
+	assert.Equal(t, "table nonexistent does not exist", err.Error())
+
+	err = cat.DecrementRowCount("nonexistent")
+	require.Error(t, err)
+	assert.Equal(t, "table nonexistent does not exist", err.Error())
+}
+
+func TestCatalog_SaveAndLoadWithMetadata(t *testing.T) {
+	cat, cleanup := setupCatalog(t)
+	defer cleanup()
+
+	_ = cat.CreateTable("users", 3, 1)
+	_ = cat.CreateTable("products", 4, 10)
+
+	// Update metadata
+	_ = cat.IncrementRowCount("users")
+	_ = cat.IncrementRowCount("users")
+	_ = cat.IncrementRowCount("products")
+
+	require.NoError(t, cat.Save())
+
+	dm, err := disk.NewFileDiskManager(testDBFile)
+	require.NoError(t, err)
+
+	cat2 := catalog.NewCatalog(dm)
+	require.NoError(t, cat2.Load())
+
+	meta, ok := cat2.Get("users")
+	require.True(t, ok)
+	assert.Equal(t, int32(3), meta.Degree)
+	assert.Equal(t, int32(1), meta.RootID)
+	assert.Equal(t, int32(2), meta.RowCount) // RowCount should persist
+	assert.WithinDuration(t, time.Now(), meta.CreatedAt, time.Second)
+
+	meta, ok = cat2.Get("products")
+	require.True(t, ok)
+	assert.Equal(t, int32(4), meta.Degree)
+	assert.Equal(t, int32(10), meta.RootID)
+	assert.Equal(t, int32(1), meta.RowCount) // RowCount should persist
+	assert.WithinDuration(t, time.Now(), meta.CreatedAt, time.Second)
 
 	require.NoError(t, dm.Close())
 }

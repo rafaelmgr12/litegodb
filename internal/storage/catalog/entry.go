@@ -1,5 +1,7 @@
 package catalog
 
+import "time"
+
 // TableMetadata holds persistent metadata for a user-defined table.
 // It allows recovery and reconstruction of the table state during database load.
 type TableMetadata struct {
@@ -11,4 +13,10 @@ type TableMetadata struct {
 
 	// Degree is the degree (minimum branching factor) of the B-Tree.
 	Degree int32
+
+	// CreatedAt is the timestamp when the table was created.
+	CreatedAt time.Time
+
+	// RowCount is the number of rows in the table.
+	RowCount int32
 }

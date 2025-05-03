@@ -3,6 +3,7 @@ package catalog
 import (
 	"bytes"
 	"encoding/binary"
+	"time"
 
 	"github.com/rafaelmgr12/litegodb/internal/storage/disk"
 )
@@ -39,6 +40,15 @@ func (c *Catalog) Save() error {
 		if err := binary.Write(buf, binary.LittleEndian, int32(meta.Degree)); err != nil {
 			return err
 		}
+
+		if err := binary.Write(buf, binary.LittleEndian, meta.CreatedAt.Unix()); err != nil {
+			return err
+		}
+
+		if err := binary.Write(buf, binary.LittleEndian, int32(meta.RowCount)); err != nil {
+			return err
+		}
+
 	}
 
 	page := disk.NewFilePage(catalogPageID)
@@ -85,11 +95,23 @@ func (c *Catalog) Load() error {
 			return err
 		}
 
+		var createdAtUnix int64
+		if err := binary.Read(buf, binary.LittleEndian, &createdAtUnix); err != nil {
+			return err
+		}
+
+		var rowCount int32
+		if err := binary.Read(buf, binary.LittleEndian, &rowCount); err != nil {
+			return err
+		}
+
 		name := string(nameBytes)
 		c.tables[name] = &TableMetadata{
-			Name:   name,
-			RootID: rootID,
-			Degree: degree,
+			Name:      name,
+			RootID:    rootID,
+			Degree:    degree,
+			CreatedAt: time.Unix(createdAtUnix, 0),
+			RowCount:  rowCount,
 		}
 	}
 

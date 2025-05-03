@@ -3,6 +3,7 @@ package catalog
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/rafaelmgr12/litegodb/internal/storage/disk"
 )
@@ -32,9 +33,11 @@ func (c *Catalog) CreateTable(name string, degree int32, rootID int32) error {
 	}
 
 	c.tables[name] = &TableMetadata{
-		Name:   name,
-		Degree: degree,
-		RootID: rootID,
+		Name:      name,
+		Degree:    degree,
+		RootID:    rootID,
+		CreatedAt: time.Now(),
+		RowCount:  0,
 	}
 
 	return nil
@@ -89,4 +92,34 @@ func (c *Catalog) All() map[string]*TableMetadata {
 		}
 	}
 	return copy
+}
+
+// IncrementRowCount increments the row count of a table.
+func (c *Catalog) IncrementRowCount(tableName string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	meta, exists := c.tables[tableName]
+	if !exists {
+		return fmt.Errorf("table %s does not exist", tableName)
+	}
+
+	meta.RowCount++
+	return nil
+}
+
+// DecrementRowCount decrements the row count of a table.
+func (c *Catalog) DecrementRowCount(tableName string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	meta, exists := c.tables[tableName]
+	if !exists {
+		return fmt.Errorf("table %s does not exist", tableName)
+	}
+
+	if meta.RowCount > 0 {
+		meta.RowCount--
+	}
+	return nil
 }

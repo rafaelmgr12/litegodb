@@ -8,7 +8,7 @@ This roadmap outlines planned features and goals for the next version of LiteGoD
 
 - [x] **Transaction support (PutBatch / Commit / Rollback)**
 - [ ] **Time-To-Live (TTL) for keys**
-- [ ] **Table metadata support** (e.g. created_at, count)
+- [x] **Table metadata support** (e.g. created_at, count)
 
 ---
 
