@@ -139,6 +139,50 @@ func (kv *BTreeKVStore) Get(table string, key int) (string, bool, error) {
 	return value.(string), true, nil
 }
 
+// GetAll retrieves all key-value pairs from the specified table.
+func (kv *BTreeKVStore) GetAll(table string) (map[int]string, error) {
+	kv.tablesMu.RLock()
+	bt, exists := kv.tables[table]
+	kv.tablesMu.RUnlock()
+
+	if !exists {
+		// Load the B-Tree from disk if it's not in memory
+		meta, ok := kv.catalog.Get(table)
+		if !ok {
+			return nil, fmt.Errorf("table %s does not exist", table)
+		}
+
+		rootPage, err := kv.diskManager.ReadPage(meta.RootID)
+		if err != nil {
+			return nil, err
+		}
+
+		bt, err = btree.Deserialize(rootPage.Data(), kv.GetPageDataByID)
+		if err != nil {
+			return nil, err
+		}
+
+		kv.tablesMu.Lock()
+		kv.tables[table] = bt
+		kv.tablesMu.Unlock()
+	}
+
+	nodes := bt.GetAllNodes()
+
+	result := make(map[int]string)
+	for _, node := range nodes {
+		for i, key := range node.Keys() {
+			value, ok := node.Values()[i].(string)
+			if !ok {
+				return nil, fmt.Errorf("value for key %d is not a string", key)
+			}
+			result[key] = value
+		}
+	}
+
+	return result, nil
+}
+
 // Delete removes a key-value pair from the KVStore.
 func (kv *BTreeKVStore) Delete(table string, key int) error {
 	kv.tablesMu.RLock()

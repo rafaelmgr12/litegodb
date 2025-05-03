@@ -341,6 +341,27 @@ func TestDropTableAndMetadata(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestGetAll(t *testing.T) {
+	store, cleanup := setupTestKVStore(t)
+	defer cleanup()
+
+	table := "test_table"
+	_ = store.CreateTableName(table, 3)
+
+	keys := []int{1, 2, 3}
+	values := []string{"one", "two", "three"}
+	for i := range keys {
+		_ = store.Put(table, keys[i], values[i])
+	}
+
+	all, err := store.GetAll(table)
+	require.NoError(t, err)
+	require.Len(t, all, len(keys))
+
+	for i, key := range keys {
+		require.Equal(t, values[i], all[key])
+	}
+}
 func assertGet(t *testing.T, store *kvstore.BTreeKVStore, table string, key int, expected string) {
 	value, found, err := store.Get(table, key)
 	if err != nil {

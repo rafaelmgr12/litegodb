@@ -253,6 +253,29 @@ func (t *BTree) searchNode(node *Node, key int) (interface{}, bool) {
 	return t.searchNode(node.children[i], key)
 }
 
+// GetAllNodes retrieves all nodes and their children from the B-Tree.
+func (t *BTree) GetAllNodes() []*Node {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	var nodes []*Node
+	t.collectAllNodes(t.root, &nodes)
+	return nodes
+}
+
+// collectAllNodes is a helper function to recursively collect all nodes from the B-Tree.
+func (t *BTree) collectAllNodes(node *Node, nodes *[]*Node) {
+	if node == nil {
+		return
+	}
+
+	*nodes = append(*nodes, node)
+
+	for _, child := range node.children {
+		t.collectAllNodes(child, nodes)
+	}
+}
+
 // Delete deletes a key from the B-Tree.
 func (t *BTree) Delete(key int) {
 	t.mutex.Lock()

@@ -388,6 +388,31 @@ func TestNewBTreeWithInvalidDegree(t *testing.T) {
 	require.Equal(t, 2, b.Degree()) // Verifica que foi ajustado para mínimo válido
 }
 
+func TestGetAllNodes(t *testing.T) {
+	b := btree.NewBTree(2)
+	keys := make(map[int]string)
+
+	for i := 0; i < 100; i++ {
+		value := generateRandomString(10, "abcdefghijklmnopqrstuvwxyz")
+		b.Insert(i, value)
+		keys[i] = value
+	}
+
+	nodes := b.GetAllNodes()
+	require.NotEmpty(t, nodes)
+
+	foundKeys := make(map[int]bool)
+	for _, node := range nodes {
+		for _, key := range node.Keys() {
+			foundKeys[key] = true
+		}
+	}
+
+	for key := range keys {
+		require.True(t, foundKeys[key], fmt.Sprintf("key %d not found in nodes", key))
+	}
+}
+
 func generateRandomString(length int, charset string) string {
 	rand.Seed(time.Now().UnixNano()) // Seed the random number generator
 
