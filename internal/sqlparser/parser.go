@@ -5,12 +5,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rafaelmgr12/litegodb/internal/interfaces"
 	"github.com/rafaelmgr12/litegodb/internal/session"
-	"github.com/rafaelmgr12/litegodb/pkg/litegodb"
 	"github.com/xwb1989/sqlparser"
 )
 
-func ParseAndExecute(query string, db litegodb.DB, session *session.Session) (interface{}, error) {
+func ParseAndExecute(query string, db interfaces.DB, session *session.Session) (interface{}, error) {
 	upper := strings.ToUpper(strings.TrimSpace(query))
 
 	if strings.HasPrefix(upper, "BEGIN") ||
@@ -31,12 +31,14 @@ func ParseAndExecute(query string, db litegodb.DB, session *session.Session) (in
 		return handleSelect(stmt, db)
 	case *sqlparser.Delete:
 		return handleDelete(stmt, db, session)
+	case *sqlparser.Update:
+		return handleUpdate(stmt, db, session)
 	default:
 		return nil, fmt.Errorf("unsupported SQL statement")
 	}
 }
 
-func handleInsert(stmt *sqlparser.Insert, db litegodb.DB, session *session.Session) (interface{}, error) {
+func handleInsert(stmt *sqlparser.Insert, db interfaces.DB, session *session.Session) (interface{}, error) {
 	table := stmt.Table.Name.String()
 	rows := stmt.Rows.(sqlparser.Values)
 
@@ -100,7 +102,7 @@ func handleInsert(stmt *sqlparser.Insert, db litegodb.DB, session *session.Sessi
 	return "inserted", nil
 }
 
-func handleSelect(stmt *sqlparser.Select, db litegodb.DB) (interface{}, error) {
+func handleSelect(stmt *sqlparser.Select, db interfaces.DB) (interface{}, error) {
 	table := stmt.From[0].(*sqlparser.AliasedTableExpr).Expr.(sqlparser.TableName).Name.String()
 	var key int
 	foundKey := false
@@ -145,7 +147,7 @@ func handleSelect(stmt *sqlparser.Select, db litegodb.DB) (interface{}, error) {
 	}, nil
 }
 
-func handleDelete(stmt *sqlparser.Delete, db litegodb.DB, session *session.Session) (interface{}, error) {
+func handleDelete(stmt *sqlparser.Delete, db interfaces.DB, session *session.Session) (interface{}, error) {
 	table := stmt.TableExprs[0].(*sqlparser.AliasedTableExpr).Expr.(sqlparser.TableName).Name.String()
 	var key int
 	foundKey := false
@@ -187,7 +189,7 @@ func handleDelete(stmt *sqlparser.Delete, db litegodb.DB, session *session.Sessi
 	return "deleted", nil
 }
 
-func handleTransaction(query string, db litegodb.DB, session *session.Session) (any, error) {
+func handleTransaction(query string, db interfaces.DB, session *session.Session) (any, error) {
 	upper := strings.ToUpper(strings.TrimSpace(query))
 
 	switch {
@@ -220,4 +222,62 @@ func handleTransaction(query string, db litegodb.DB, session *session.Session) (
 	default:
 		return nil, fmt.Errorf("unsupported transaction statement: %s", query)
 	}
+}
+
+func handleUpdate(stmt *sqlparser.Update, db interfaces.DB, session *session.Session) (interface{}, error) {
+	table := stmt.TableExprs[0].(*sqlparser.AliasedTableExpr).Expr.(sqlparser.TableName).Name.String()
+
+	var key int
+	foundKey := false
+
+	if stmt.Where != nil {
+		compExpr, ok := stmt.Where.Expr.(*sqlparser.ComparisonExpr)
+		if !ok {
+			return nil, fmt.Errorf("unsupported WHERE clause")
+		}
+
+		leftCol := compExpr.Left.(*sqlparser.ColName).Name.String()
+		rightVal := compExpr.Right.(*sqlparser.SQLVal)
+
+		if strings.ToLower(leftCol) != "key" {
+			return nil, fmt.Errorf("only WHERE key = ... supported")
+		}
+
+		k, err := strconv.Atoi(string(rightVal.Val))
+		if err != nil {
+			return nil, fmt.Errorf("invalid key value")
+		}
+
+		key = k
+		foundKey = true
+	}
+
+	if !foundKey {
+		return nil, fmt.Errorf("WHERE clause with key is required")
+	}
+
+	var newValue string
+	for _, expr := range stmt.Exprs {
+		colName := expr.Name.Name.String()
+		if strings.ToLower(colName) != "value" {
+			return nil, fmt.Errorf("only updating 'value' column is supported")
+		}
+
+		valExpr, ok := expr.Expr.(*sqlparser.SQLVal)
+		if !ok {
+			return nil, fmt.Errorf("invalid value expression")
+		}
+
+		newValue = string(valExpr.Val)
+	}
+
+	if session != nil && session.Transaction != nil {
+		session.Transaction.PutBatch(table, key, newValue)
+	} else {
+		if err := db.Put(table, key, newValue); err != nil {
+			return nil, fmt.Errorf("failed to update value: %w", err)
+		}
+	}
+
+	return "updated", nil
 }

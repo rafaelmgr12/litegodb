@@ -3,10 +3,11 @@ package sqlparser_test
 import (
 	"testing"
 
+	"github.com/rafaelmgr12/litegodb/internal/interfaces"
 	"github.com/rafaelmgr12/litegodb/internal/session"
 	"github.com/rafaelmgr12/litegodb/internal/sqlparser"
-	"github.com/rafaelmgr12/litegodb/pkg/litegodb"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockDB struct {
@@ -48,7 +49,7 @@ func (m *mockDB) CreateTable(table string, degree int) error { return nil }
 func (m *mockDB) DropTable(table string) error               { return nil }
 func (m *mockDB) Load() error                                { return nil }
 func (m *mockDB) Close() error                               { return nil }
-func (m *mockDB) BeginTransaction() litegodb.Transaction     { return nil }
+func (m *mockDB) BeginTransaction() interfaces.Transaction   { return nil }
 
 func TestParseAndExecute_InsertSelectDelete(t *testing.T) {
 	db := newMockDB()
@@ -117,7 +118,7 @@ type mockDBWithTransaction struct {
 	transaction *mockTransaction
 }
 
-func (m *mockDBWithTransaction) BeginTransaction() litegodb.Transaction {
+func (m *mockDBWithTransaction) BeginTransaction() interfaces.Transaction {
 	m.transaction = &mockTransaction{}
 	return m.transaction
 }
@@ -282,4 +283,33 @@ func TestParseAndExecute_TransactionRollbackAfterFailure(t *testing.T) {
 	// Validate transaction state
 	assert.True(t, db.transaction.rolledBack, "Transaction should be rolled back")
 	assert.Empty(t, db.transaction.operations, "No operations should remain after rollback")
+}
+
+func TestHandleUpdate(t *testing.T) {
+	db := newMockDB()
+	session := session.NewSessionManager().GetOrCreate("test")
+
+	// Insert initial data
+	_ = db.Put("users", 1, "rafael")
+
+	// Update the value
+	query := "UPDATE users SET value = 'updated_value' WHERE `key` = 1"
+	_, err := sqlparser.ParseAndExecute(query, db, session)
+	require.NoError(t, err)
+
+	// Verify the update
+	val, found, err := db.Get("users", 1)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "updated_value", val)
+
+	// Test invalid WHERE clause
+	query = "UPDATE users SET value = 'new_value' WHERE id = 1"
+	_, err = sqlparser.ParseAndExecute(query, db, session)
+	assert.Error(t, err)
+
+	// Test invalid SET clause
+	query = "UPDATE users SET name = 'new_value' WHERE key = 1"
+	_, err = sqlparser.ParseAndExecute(query, db, session)
+	assert.Error(t, err)
 }
