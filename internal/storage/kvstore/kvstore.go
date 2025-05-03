@@ -54,7 +54,7 @@ func (kv *BTreeKVStore) CreateTableName(name string, degree int) error {
 	}
 	rootID := page.ID()
 
-	err = kv.catalog.CreateTable(name, rootID, int32(degree))
+	err = kv.catalog.CreateTable(name, int32(degree), rootID+1)
 	if err != nil {
 		return err
 	}
@@ -97,6 +97,11 @@ func (kv *BTreeKVStore) Put(table string, key int, value string) error {
 	}
 
 	bt.Insert(key, value)
+
+	if err := kv.catalog.IncrementRowCount(table); err != nil {
+		return err
+	}
+
 	return kv.Flush(table)
 }
 
@@ -165,6 +170,11 @@ func (kv *BTreeKVStore) Delete(table string, key int) error {
 		return err
 	}
 	bt.Delete(key)
+
+	if err := kv.catalog.DecrementRowCount(table); err != nil {
+		return err
+	}
+
 	return kv.Flush(table)
 }
 
@@ -315,6 +325,11 @@ func (kv *BTreeKVStore) DropTable(name string) error {
 func (kv *BTreeKVStore) IsTableExists(name string) bool {
 	_, exists := kv.catalog.Get(name)
 	return exists
+}
+
+// GetTableMetadata retrieves the metadata of a table by its name.
+func (kv *BTreeKVStore) GetTableMetadata(tableName string) (*catalog.TableMetadata, bool) {
+	return kv.catalog.Get(tableName)
 }
 
 func SerializeNodeForTest(bt *btree.BTree) ([]byte, error) {

@@ -11,6 +11,8 @@ import (
 	"github.com/rafaelmgr12/litegodb/internal/storage/btree"
 	"github.com/rafaelmgr12/litegodb/internal/storage/disk"
 	"github.com/rafaelmgr12/litegodb/internal/storage/kvstore"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -261,6 +263,82 @@ func TestSerializeDeterministicOutput(t *testing.T) {
 	if !bytes.Equal(data1, data2) {
 		t.Errorf("Serialization output is not deterministic")
 	}
+}
+
+func TestRowCountUpdates(t *testing.T) {
+	store, cleanup := setupTestKVStore(t)
+	defer cleanup()
+
+	// Create a table
+	table := "users"
+	err := store.CreateTableName(table, 3)
+	require.NoError(t, err)
+
+	// Add rows
+	err = store.Put(table, 1, "rafael")
+	require.NoError(t, err)
+
+	err = store.Put(table, 2, "maria")
+	require.NoError(t, err)
+
+	// Verify row count
+	meta, ok := store.GetTableMetadata(table)
+	require.True(t, ok)
+	assert.Equal(t, int32(2), meta.RowCount)
+
+	// Delete a row
+	err = store.Delete(table, 1)
+	require.NoError(t, err)
+
+	// Verify row count
+	meta, ok = store.GetTableMetadata(table)
+	require.True(t, ok)
+	assert.Equal(t, int32(1), meta.RowCount)
+
+	// Delete the last row
+	err = store.Delete(table, 2)
+	require.NoError(t, err)
+
+	// Verify row count is zero
+	meta, ok = store.GetTableMetadata(table)
+	require.True(t, ok)
+	assert.Equal(t, int32(0), meta.RowCount)
+}
+
+func TestCreateTableAndMetadata(t *testing.T) {
+	store, cleanup := setupTestKVStore(t)
+	defer cleanup()
+
+	// Create a table
+	table := "products"
+	err := store.CreateTableName(table, 4)
+	require.NoError(t, err)
+
+	// Verify metadata
+	meta, ok := store.GetTableMetadata(table)
+	require.True(t, ok)
+	assert.Equal(t, "products", meta.Name)
+	assert.Equal(t, int32(4), meta.Degree)
+	assert.Equal(t, int32(0), meta.RowCount)
+	assert.WithinDuration(t, time.Now(), meta.CreatedAt, time.Second)
+}
+
+func TestDropTableAndMetadata(t *testing.T) {
+	store, cleanup := setupTestKVStore(t)
+	defer cleanup()
+
+	// Create a table
+	table := "orders"
+	err := store.CreateTableName(table, 3)
+	require.NoError(t, err)
+
+	// Drop the table
+	err = store.DropTable(table)
+	require.NoError(t, err)
+
+	// Verify the table is removed
+	_, ok := store.GetTableMetadata(table)
+	assert.False(t, ok)
 }
 
 func assertGet(t *testing.T, store *kvstore.BTreeKVStore, table string, key int, expected string) {
