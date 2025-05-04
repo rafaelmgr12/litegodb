@@ -14,7 +14,7 @@ This roadmap outlines planned features and goals for the next version of LiteGoD
 
 ## 🧠 SQL Enhancements
 
-- [ ] `UPDATE` support
+- [x] `UPDATE` support
 - [ ] `CREATE TABLE` / `DROP TABLE` syntax
 - [ ] `DESCRIBE tablename`
 - [ ] `SELECT ... LIMIT` / `OFFSET`
@@ -24,7 +24,6 @@ This roadmap outlines planned features and goals for the next version of LiteGoD
 
 ## 🌐 Server / Client Improvements
 
-- [ ] gRPC API (in addition to REST/WebSocket)
 - [ ] Web Playground UI for testing SQL queries
 - [ ] Improve CLI client (`litegodbc`) with autocomplete / flags
 - [ ] Add authentication (API tokens) and CORS config
