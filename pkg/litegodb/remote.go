@@ -27,6 +27,13 @@ func OpenRemote(baseURL string) (DB, error) {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
+
+	// Check if the server is reachable
+	_, err := client.Get(baseURL + "/ping")
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to remote server: %w", err)
+	}
+
 	return &remoteAdapter{
 		baseURL:    baseURL,
 		httpClient: client,
@@ -41,12 +48,21 @@ func (r *remoteAdapter) Put(table string, key int, value string) error {
 		"key":   key,
 		"value": value,
 	}
+
+	if table == "" {
+		return fmt.Errorf("invalid parameters: table=%s", table)
+	}
+
 	return r.post("/put", reqBody)
 }
 
 // Get retrieves the value for the specified key from the specified table on the remote LiteGoDB server.
 // It returns the value, a boolean indicating whether the key was found, and an error if the operation fails.
 func (r *remoteAdapter) Get(table string, key int) (string, bool, error) {
+
+	if table == "" {
+		return "", false, fmt.Errorf("invalid parameters: table=%s", table)
+	}
 	url := fmt.Sprintf("%s/get?table=%s&key=%d", r.baseURL, table, key)
 	resp, err := r.httpClient.Get(url)
 	if err != nil {
@@ -75,6 +91,10 @@ func (r *remoteAdapter) Get(table string, key int) (string, bool, error) {
 // Delete removes the key-value pair with the specified key from the specified table on the remote LiteGoDB server.
 // It returns an error if the operation fails.
 func (r *remoteAdapter) Delete(table string, key int) error {
+
+	if table == "" {
+		return fmt.Errorf("invalid parameters: table=%s", table)
+	}
 	reqBody := map[string]interface{}{
 		"table": table,
 		"key":   key,
@@ -181,6 +201,16 @@ func (rt *remoteTransaction) Rollback() {
 	rt.operations = nil
 }
 
+// Update updates the value associated with the given key in the specified table.
+func (r *remoteAdapter) Update(table string, key int, value string) error {
+	reqBody := map[string]interface{}{
+		"table": table,
+		"key":   key,
+		"value": value,
+	}
+	return r.post("/update", reqBody)
+}
+
 // post sends a POST request to the specified path with the provided body to the remote LiteGoDB server.
 // It returns an error if the operation fails.
 func (r *remoteAdapter) post(path string, body map[string]interface{}) error {
@@ -191,6 +221,7 @@ func (r *remoteAdapter) post(path string, body map[string]interface{}) error {
 	}
 
 	resp, err := r.httpClient.Post(url, "application/json", bytes.NewReader(data))
+
 	if err != nil {
 		return err
 	}

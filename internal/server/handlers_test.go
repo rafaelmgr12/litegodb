@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -190,4 +191,60 @@ func TestSQLHandlerEmptyQuery(t *testing.T) {
 	s.sqlHandler(w, req)
 
 	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdateHandlerSuccess(t *testing.T) {
+	s := &Server{
+		DB: &fakeDB{
+			updateFn: func(table string, key int, value string) error {
+				return nil
+			},
+		},
+	}
+
+	body := bytes.NewBufferString(`{"table":"users","key":1,"value":"updated_value"}`)
+	req := httptest.NewRequest(http.MethodPut, "/update", body)
+	w := httptest.NewRecorder()
+
+	s.updateHandler(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUpdateHandlerInvalidJSON(t *testing.T) {
+	s := &Server{}
+	req := httptest.NewRequest(http.MethodPut, "/update", bytes.NewBufferString("invalid"))
+	w := httptest.NewRecorder()
+
+	s.updateHandler(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdateHandlerMethodNotAllowed(t *testing.T) {
+	s := &Server{}
+	req := httptest.NewRequest(http.MethodGet, "/update", nil)
+	w := httptest.NewRecorder()
+
+	s.updateHandler(w, req)
+
+	require.Equal(t, http.StatusMethodNotAllowed, w.Code)
+}
+
+func TestUpdateHandlerWithError(t *testing.T) {
+	s := &Server{
+		DB: &fakeDB{
+			updateFn: func(table string, key int, value string) error {
+				return fmt.Errorf("update failed")
+			},
+		},
+	}
+
+	body := bytes.NewBufferString(`{"table":"users","key":1,"value":"updated_value"}`)
+	req := httptest.NewRequest(http.MethodPut, "/update", body)
+	w := httptest.NewRecorder()
+
+	s.updateHandler(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
 }

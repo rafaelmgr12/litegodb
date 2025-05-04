@@ -30,6 +30,10 @@ func (a *AdapterDB) DropTable(table string) error {
 	return a.Impl.DropTable(table)
 }
 
+func (a *AdapterDB) Update(table string, key int, value string) error {
+	return a.Impl.Update(table, key, value)
+}
+
 func (a *AdapterDB) Load() error {
 	return a.Impl.Load()
 }

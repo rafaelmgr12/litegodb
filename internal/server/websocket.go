@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/rafaelmgr12/litegodb/internal/session"
+	"github.com/rafaelmgr12/litegodb/internal/sqlparser"
 )
 
 var upgrader = websocket.Upgrader{
@@ -36,6 +38,8 @@ func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 	s.connMutex.Lock()
 	s.connections[conn] = true
 	s.connMutex.Unlock()
+
+	sess := session.NewSessionManager().GetOrCreate(conn.RemoteAddr().String())
 
 	defer func() {
 		// Unregister connection
@@ -89,6 +93,24 @@ func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		case "ping":
 			resp = WSResponse{Status: "ok", Message: "pong"}
+		case "update":
+			err := s.DB.Update(req.Table, req.Key, req.Value)
+			if err != nil {
+				resp = WSResponse{Status: "error", Message: err.Error()}
+			} else {
+				resp = WSResponse{Status: "ok"}
+			}
+		case "sql":
+			res, err := sqlparser.ParseAndExecute(req.Value, s.DB, sess)
+			if err != nil {
+				resp = WSResponse{Status: "error", Message: err.Error()}
+			} else {
+				if strRes, ok := res.(string); ok {
+					resp = WSResponse{Status: "ok", Value: strRes}
+				} else {
+					resp = WSResponse{Status: "error", Message: "unexpected result type"}
+				}
+			}
 		default:
 			resp = WSResponse{Status: "error", Message: "unknown operation"}
 		}

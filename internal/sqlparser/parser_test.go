@@ -26,6 +26,14 @@ func (m *mockDB) Put(table string, key int, value string) error {
 	return nil
 }
 
+func (m *mockDB) Update(table string, key int, value string) error {
+	if m.store[table] == nil {
+		return nil
+	}
+	m.store[table][key] = value
+	return nil
+}
+
 func (m *mockDB) Get(table string, key int) (string, bool, error) {
 	t, ok := m.store[table]
 	if !ok {

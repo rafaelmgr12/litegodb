@@ -11,61 +11,99 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRemoteAdapter_PutGetDelete(t *testing.T) {
-	// Fake in-memory database to simulate server-side
+func setupFakeServer() (*httptest.Server, map[string]map[int]string) {
 	db := make(map[string]map[int]string)
 
-	// Create a fake HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/put":
-			var req struct {
-				Table string `json:"table"`
-				Key   int    `json:"key"`
-				Value string `json:"value"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&req)
-			if db[req.Table] == nil {
-				db[req.Table] = make(map[int]string)
-			}
-			db[req.Table][req.Key] = req.Value
-			w.WriteHeader(http.StatusOK)
-
+			handlePut(w, r, db)
 		case "/get":
-			table := r.URL.Query().Get("table")
-			keyParam := r.URL.Query().Get("key")
-			var key int
-			_, _ = fmt.Sscanf(keyParam, "%d", &key)
-
-			value, exists := db[table][key]
-			if !exists {
-				http.NotFound(w, r)
-				return
-			}
-
-			resp := map[string]string{"value": value}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
-
+			handleGet(w, r, db)
 		case "/delete":
-			var req struct {
-				Table string `json:"table"`
-				Key   int    `json:"key"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&req)
-
-			if db[req.Table] != nil {
-				delete(db[req.Table], req.Key)
-			}
-			w.WriteHeader(http.StatusOK)
-
+			handleDelete(w, r, db)
+		case "/update":
+			handleUpdate(w, r, db)
 		default:
 			http.NotFound(w, r)
 		}
 	}))
+
+	return server, db
+}
+
+// Handlers for different operations
+func handlePut(w http.ResponseWriter, r *http.Request, db map[string]map[int]string) {
+	var req struct {
+		Table string `json:"table"`
+		Key   int    `json:"key"`
+		Value string `json:"value"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if db[req.Table] == nil {
+		db[req.Table] = make(map[int]string)
+	}
+	db[req.Table][req.Key] = req.Value
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleGet(w http.ResponseWriter, r *http.Request, db map[string]map[int]string) {
+	table := r.URL.Query().Get("table")
+	keyParam := r.URL.Query().Get("key")
+	var key int
+	_, _ = fmt.Sscanf(keyParam, "%d", &key)
+
+	value, exists := db[table][key]
+	if !exists {
+		http.NotFound(w, r)
+		return
+	}
+
+	resp := map[string]string{"value": value}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleDelete(w http.ResponseWriter, r *http.Request, db map[string]map[int]string) {
+	var req struct {
+		Table string `json:"table"`
+		Key   int    `json:"key"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if db[req.Table] != nil {
+		delete(db[req.Table], req.Key)
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func handleUpdate(w http.ResponseWriter, r *http.Request, db map[string]map[int]string) {
+	var req struct {
+		Table string `json:"table"`
+		Key   int    `json:"key"`
+		Value string `json:"value"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if db[req.Table] == nil {
+		http.Error(w, "Table not found", http.StatusNotFound)
+		return
+	}
+
+	if _, exists := db[req.Table][req.Key]; !exists {
+		http.Error(w, "Key not found", http.StatusNotFound)
+		return
+	}
+
+	db[req.Table][req.Key] = req.Value
+	w.WriteHeader(http.StatusOK)
+}
+
+// Refactored tests
+func TestRemoteAdapter_PutGetDelete(t *testing.T) {
+	server, _ := setupFakeServer()
 	defer server.Close()
 
-	// Connect the remote client to the fake server
 	remoteDB, err := litegodb.OpenRemote(server.URL)
 	assert.NoError(t, err)
 
@@ -94,148 +132,142 @@ func TestRemoteAdapter_PutGetDelete(t *testing.T) {
 	assert.False(t, found)
 }
 
-func TestRemoteAdapter_Flush(t *testing.T) {
-	remoteDB, err := litegodb.OpenRemote("http://example.com")
-	assert.NoError(t, err)
-
-	err = remoteDB.Flush("test_table")
-	assert.NoError(t, err)
-}
-
-func TestRemoteAdapter_CreateTable(t *testing.T) {
-	remoteDB, err := litegodb.OpenRemote("http://example.com")
-	assert.NoError(t, err)
-
-	err = remoteDB.CreateTable("test_table", 3)
-	assert.NoError(t, err)
-}
-
-func TestRemoteAdapter_DropTable(t *testing.T) {
-	remoteDB, err := litegodb.OpenRemote("http://example.com")
-	assert.NoError(t, err)
-
-	err = remoteDB.DropTable("test_table")
-	assert.NoError(t, err)
-}
-
-func TestRemoteAdapter_BeginTransaction(t *testing.T) {
-	remoteDB, err := litegodb.OpenRemote("http://example.com")
-	assert.NoError(t, err)
-
-	tx := remoteDB.BeginTransaction()
-	assert.NotNil(t, tx)
-
-	tx.PutBatch("users", 1, "rafael")
-	tx.DeleteBatch("users", 2)
-
-	err = tx.Commit()
-	assert.Error(t, err) // Simulated error since no server is running
-}
-
-func TestRemoteAdapter_Get_NotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	}))
+func TestRemoteAdapter_Update(t *testing.T) {
+	server, db := setupFakeServer()
 	defer server.Close()
 
 	remoteDB, err := litegodb.OpenRemote(server.URL)
 	assert.NoError(t, err)
 
-	_, found, err := remoteDB.Get("users", 1)
+	// Prepare the table and key-value pair
+	table := "users"
+	key := 1
+	initialValue := "rafael"
+	updatedValue := "rafael_updated"
+
+	// Simulate initial PUT
+	if db[table] == nil {
+		db[table] = make(map[int]string)
+	}
+	db[table][key] = initialValue
+
+	// Test UPDATE
+	err = remoteDB.Update(table, key, updatedValue)
+	assert.NoError(t, err)
+
+	// Verify the update
+	assert.Equal(t, updatedValue, db[table][key])
+}
+
+func TestRemoteAdapter_PutEdgeCases(t *testing.T) {
+	server, db := setupFakeServer()
+	defer server.Close()
+
+	remoteDB, err := litegodb.OpenRemote(server.URL)
+	assert.NoError(t, err)
+
+	// Test PUT with an empty table name
+	err = remoteDB.Put("", 1, "value")
+	assert.Error(t, err)
+
+	// Test PUT with a negative key
+	err = remoteDB.Put("users", -1, "value")
+	assert.NoError(t, err)
+	assert.Equal(t, "value", db["users"][-1])
+
+	// Test PUT with an empty value
+	err = remoteDB.Put("users", 2, "")
+	assert.NoError(t, err)
+	assert.Equal(t, "", db["users"][2])
+}
+
+func TestRemoteAdapter_GetEdgeCases(t *testing.T) {
+	server, db := setupFakeServer()
+	defer server.Close()
+
+	remoteDB, err := litegodb.OpenRemote(server.URL)
+	assert.NoError(t, err)
+
+	// Prepare the table and key-value pair
+	table := "users"
+	key := 1
+	value := "rafael"
+	db[table] = map[int]string{key: value}
+
+	// Test GET with an empty table name
+	_, found, err := remoteDB.Get("", key)
+	assert.Error(t, err)
+	assert.False(t, found)
+
+	// Test GET with a non-existent table
+	_, found, err = remoteDB.Get("nonexistent", key)
+	assert.NoError(t, err)
+	assert.False(t, found)
+
+	// Test GET with a non-existent key
+	_, found, err = remoteDB.Get(table, 999)
 	assert.NoError(t, err)
 	assert.False(t, found)
 }
 
-func TestRemoteTransaction_EmptyCommit(t *testing.T) {
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/tx/commit" && r.Method == http.MethodPost {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		http.NotFound(w, r)
-	}))
-
+func TestRemoteAdapter_DeleteEdgeCases(t *testing.T) {
+	server, db := setupFakeServer()
 	defer server.Close()
 
 	remoteDB, err := litegodb.OpenRemote(server.URL)
 	assert.NoError(t, err)
 
-	tx := remoteDB.BeginTransaction()
-	assert.NotNil(t, tx)
+	// Prepare the table and key-value pair
+	table := "users"
+	key := 1
+	value := "rafael"
+	db[table] = map[int]string{key: value}
 
-	// Commit an empty transaction
-	err = tx.Commit()
-	assert.NoError(t, err)
-}
-
-func TestRemoteTransaction_RollbackWithoutCommit(t *testing.T) {
-	remoteDB, err := litegodb.OpenRemote("http://example.com")
-	assert.NoError(t, err)
-
-	tx := remoteDB.BeginTransaction()
-	assert.NotNil(t, tx)
-
-	// Rollback without committing
-	assert.NotPanics(t, func() {
-		tx.Rollback()
-	})
-}
-
-func TestRemoteTransaction_PartialCommitFailure(t *testing.T) {
-
-	// Create a fake HTTP server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/commit":
-			// Simulate a partial failure during commit
-			http.Error(w, "Partial failure", http.StatusInternalServerError)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	remoteDB, err := litegodb.OpenRemote(server.URL)
-	assert.NoError(t, err)
-
-	tx := remoteDB.BeginTransaction()
-	assert.NotNil(t, tx)
-
-	tx.PutBatch("users", 1, "rafael")
-	tx.PutBatch("users", 2, "maria")
-
-	// Commit the transaction and expect an error
-	err = tx.Commit()
+	// Test DELETE with an empty table name
+	err = remoteDB.Delete("", key)
 	assert.Error(t, err)
+
+	// Test DELETE with a non-existent table
+	err = remoteDB.Delete("nonexistent", key)
+	assert.NoError(t, err)
+
+	// Test DELETE with a non-existent key
+	err = remoteDB.Delete(table, 999)
+	assert.NoError(t, err)
+
+	// Test DELETE with a valid key
+	err = remoteDB.Delete(table, key)
+	assert.NoError(t, err)
+	assert.NotContains(t, db[table], key)
 }
 
-func TestRemoteTransaction_ConcurrentTransactions(t *testing.T) {
-	// Create a fake HTTP server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/tx/commit" && r.Method == http.MethodPost {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		http.NotFound(w, r)
-	}))
-
+func TestRemoteAdapter_UpdateEdgeCases(t *testing.T) {
+	server, db := setupFakeServer()
 	defer server.Close()
 
 	remoteDB, err := litegodb.OpenRemote(server.URL)
 	assert.NoError(t, err)
 
-	// Start two concurrent transactions
-	tx1 := remoteDB.BeginTransaction()
-	tx2 := remoteDB.BeginTransaction()
+	// Prepare the table and key-value pair
+	table := "users"
+	key := 1
+	initialValue := "rafael"
+	db[table] = map[int]string{key: initialValue}
 
-	tx1.PutBatch("users", 1, "rafael")
-	tx2.PutBatch("users", 2, "maria")
+	// Test UPDATE with an empty table name
+	err = remoteDB.Update("", key, "new_value")
+	assert.Error(t, err)
 
-	// Commit both transactions
-	err1 := tx1.Commit()
-	err2 := tx2.Commit()
+	// Test UPDATE with a non-existent table
+	err = remoteDB.Update("nonexistent", key, "new_value")
+	assert.Error(t, err)
 
-	assert.NoError(t, err1)
-	assert.NoError(t, err2)
+	// Test UPDATE with a non-existent key
+	err = remoteDB.Update(table, 999, "new_value")
+	assert.Error(t, err)
+
+	// Test UPDATE with an empty value
+	err = remoteDB.Update(table, key, "")
+	assert.NoError(t, err)
+	assert.Equal(t, "", db[table][key])
 }

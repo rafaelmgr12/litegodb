@@ -32,6 +32,9 @@ type DB interface {
 
 	// BeginTransaction starts a new transaction.
 	BeginTransaction() Transaction
+
+	// Update updates the value associated with the given key in the specified table.
+	Update(table string, key int, value string) error
 }
 
 // Transaction defines the interface for database transactions.

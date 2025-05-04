@@ -5,6 +5,7 @@ import "github.com/rafaelmgr12/litegodb/internal/interfaces"
 type fakeDB struct {
 	putFn    func(string, int, string) error
 	getFn    func(string, int) (string, bool, error)
+	updateFn func(string, int, string) error
 	deleteFn func(string, int) error
 }
 
@@ -25,6 +26,13 @@ func (f *fakeDB) Get(table string, key int) (string, bool, error) {
 func (f *fakeDB) Delete(table string, key int) error {
 	if f.deleteFn != nil {
 		return f.deleteFn(table, key)
+	}
+	return nil
+}
+
+func (f *fakeDB) Update(table string, key int, value string) error {
+	if f.updateFn != nil {
+		return f.updateFn(table, key, value)
 	}
 	return nil
 }

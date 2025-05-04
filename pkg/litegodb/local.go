@@ -65,3 +65,8 @@ func (b *btreeAdapter) DropTable(table string) error {
 func (b *btreeAdapter) BeginTransaction() Transaction {
 	return b.kv.BeginTransaction()
 }
+
+// Update updates the value associated with the given key in the specified table.
+func (b *btreeAdapter) Update(table string, key int, value string) error {
+	return b.kv.Put(table, key, value)
+}

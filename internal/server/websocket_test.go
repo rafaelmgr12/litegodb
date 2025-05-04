@@ -246,3 +246,61 @@ func TestWebSocketConcurrentConnections(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestWebSocketHandlerUpdateOperation(t *testing.T) {
+	s := &Server{
+		connections: make(map[*websocket.Conn]bool),
+		DB: &fakeDB{
+			updateFn: func(table string, key int, value string) error {
+				if table == "testTable" && key == 1 && value == "updatedValue" {
+					return nil
+				}
+				return fmt.Errorf("unexpected update parameters")
+			},
+		},
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(s.wsHandler))
+	defer ts.Close()
+
+	wsURL := "ws" + ts.URL[4:]
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	message := WSRequest{Op: "update", Table: "testTable", Key: 1, Value: "updatedValue"}
+	require.NoError(t, conn.WriteJSON(message))
+
+	var response WSResponse
+	require.NoError(t, conn.ReadJSON(&response))
+	require.Equal(t, "ok", response.Status)
+}
+
+func TestWebSocketHandlerSQLUpdateQuery(t *testing.T) {
+	s := &Server{
+		connections: make(map[*websocket.Conn]bool),
+		DB: &fakeDB{
+			updateFn: func(table string, key int, value string) error {
+				if table == "users" && key == 1 && value == "updated_value" {
+					return nil
+				}
+				return fmt.Errorf("unexpected update parameters")
+			},
+		},
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(s.wsHandler))
+	defer ts.Close()
+
+	wsURL := "ws" + ts.URL[4:]
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	message := WSRequest{Op: "sql", Value: "UPDATE users SET value = 'updated_value' WHERE `key` = 1"}
+	require.NoError(t, conn.WriteJSON(message))
+
+	var response WSResponse
+	require.NoError(t, conn.ReadJSON(&response))
+	require.Equal(t, "ok", response.Status)
+}
